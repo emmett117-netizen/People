@@ -265,7 +265,7 @@ function vHome(){const pend=people.reduce((a,p)=>a+(p.ops||[]).length,0);
   if(ui.q)return h+`<h2>Results</h2>`+list(search(ui.q).slice(0,60),null,'No matches.');
   const dues=people.map(p=>[due(p),p]).filter(x=>x[0]!=null&&x[0]>0).sort((a,b)=>b[0]-a[0]).slice(0,12);
   const soon=people.map(p=>[nextBirthday(p),p]).filter(x=>x[0]&&(x[0]-Date.now())<45*864e5).sort((a,b)=>a[0]-b[0]);
-  const recent=people.filter(p=>F(p,'last_seen')).sort((a,b)=>String(F(b,'last_seen')).localeCompare(String(F(a,'last_seen')))).slice(0,6);
+  const cut=new Date(Date.now()-60*864e5).toISOString().slice(0,10);const recent=people.filter(p=>/^\d{4}-\d\d-\d\d$/.test(String(F(p,'last_seen')))&&String(F(p,'last_seen'))>=cut).sort((a,b)=>String(F(b,'last_seen')).localeCompare(String(F(a,'last_seen')))).slice(0,6);
   h+=`<p class="status"><span class="dot ${pend?'pend':(lastSync?'ok':'')}"></span>${pend?pend+' change'+(pend>1?'s':'')+' waiting to sync':(lastSync?'Synced '+esc(lastSync):'Not synced with Drive yet')} <button class="btn small ghost" id="sync" style="margin-left:6px;padding:3px 10px"${syncing?' disabled':''}>${syncing?'Syncing…':'Sync now'}</button></p>`;
   h+=`<h2>Time to reach out</h2>`+list(dues.map(x=>x[1]),p=>{const l=lastTouch(p);return(l?'Last contact '+l:'No contact logged')+' · every '+F(p,'keep_in_touch_months')+' mo'},'Set "keep in touch" on a person and they will show up here when they are due.');
   h+=`<h2>Birthdays coming up</h2>`+list(soon.map(x=>x[1]),p=>nextBirthday(p).toLocaleDateString(undefined,{month:'long',day:'numeric'}),'No birthdays in the next 45 days.');
@@ -301,7 +301,7 @@ function vPerson(name){const p=byName(name);if(!p)return`<h1>Not found</h1><p><a
   ${d!=null&&d>0?`<div class="warn small">Due for a catch-up</div>`:''}${(p.ops||[]).length?`<div class="small" style="color:var(--accent)">${p.ops.length} change(s) not synced yet</div>`:''}</div></div>
   <div class="row wrap">${ph.slice(0,2).map(n=>`<a class="act" href="tel:${esc(n)}">Call</a><a class="act" href="sms:${esc(n)}">Text</a><a class="act" href="https://wa.me/${esc(String(n).replace(/\D/g,''))}">WhatsApp</a>`).join('')}${em.slice(0,1).map(e=>`<a class="act" href="mailto:${esc(e)}">Email</a>`).join('')}<a class="act" href="#web/${encodeURIComponent(p.name)}">Their web</a></div>
   <h2>Log an update</h2><div class="card" style="padding:12px"><textarea class="field" id="log" placeholder="Just had coffee with ${esc(p.name.split(' ')[0])}…"></textarea>
-  <div class="row wrap" style="margin-top:8px"><button class="btn small ghost mic" id="mic">Speak</button><label class="small row"><input type="checkbox" id="seen" checked> saw them today</label><span class="grow"></span><button class="btn small ghost" id="ask">Send to Claude</button><button class="btn small" id="savelog">Save</button></div></div>
+  <div class="row wrap" style="margin-top:8px"><button class="btn small ghost mic" id="mic">Speak</button><select class="field" id="seen" style="width:auto;padding:7px 10px;font-size:14px"><option value="today">Saw them today</option><option value="yesterday">Saw them yesterday</option><option value="date">Saw them on…</option><option value="none">Didn't see them</option></select><input class="field" type="date" id="seendate" hidden style="width:auto;padding:6px 8px;font-size:14px"><span class="grow"></span><button class="btn small ghost" id="ask">Send to Claude</button><button class="btn small" id="savelog">Save</button></div></div>
   <h2>Reminder</h2><div class="card" style="padding:12px"><input class="field" id="rtext" placeholder="Congratulate ${esc(p.name.split(' ')[0])} on…">
   <div class="row" style="margin-top:8px"><input class="field" id="rdate" type="date" value="${new Date(Date.now()+14*864e5).toISOString().slice(0,10)}"><button class="btn small" id="rsave" style="white-space:nowrap">Add reminder</button></div></div>
   <h2>Details</h2><div class="card"><div class="kv">
@@ -428,15 +428,17 @@ function renderSheet(keepFocus){const s=$('#sheet');if(!ui.sheet){s.hidden=true;
     s.innerHTML=`<div class="in">${head('Search')}<input class="field" id="sq" type="search" placeholder="Name, place, company, anything in their notes" value="${esc(ui.sq)}" autocomplete="off">
     <div style="margin-top:12px">${q?(res.length?`<div class="card">${res.map(p=>item(p)).join('')}</div>`:'<p class="mute">No matches.</p>'):`<p class="mute">Searches all ${people.length} people: names, cities, companies, and everything in their notes.</p>`}</div></div>`}
   else{const p=ui.apick&&byName(ui.apick);const q=ui.ap.trim().toLowerCase();
-    const opts=q?people.filter(x=>x.name.toLowerCase().includes(q)).slice(0,8):[];
+    const rk=x=>{const n=x.name.toLowerCase();return n===q?0:n.startsWith(q)?1:n.split(/\s+/).some(w=>w.startsWith(q))?2:3};const opts=q?people.filter(x=>x.name.toLowerCase().includes(q)).sort((a,b)=>rk(a)-rk(b)||a.name.localeCompare(b.name)).slice(0,8):[];
     s.innerHTML=`<div class="in">${head('Add an update')}
     ${p?`<div class="card"><div class="item" style="cursor:default">${avatar(p)}<div class="grow"><div style="font-weight:700">${esc(p.name)}</div><div class="sub">${esc([F(p,'circle'),lastTouch(p)?'last contact '+lastTouch(p):''].filter(Boolean).join(' · '))}</div></div><button class="btn small ghost" id="achange">Change</button></div></div>`
       :`<input class="field" id="ap" type="search" placeholder="Who is this about?" value="${esc(ui.ap)}" autocomplete="off">${opts.length?`<div class="card" style="margin-top:8px">${opts.map(x=>`<button class="pick" data-pick="${esc(x.name)}">${avatar(x)}<div class="grow"><div>${esc(x.name)}</div><div class="sub mute small">${esc(F(x,'circle')||'')}</div></div></button>`).join('')}</div>`:(q?'<p class="mute small">Nobody by that name. Add them from the Everyone tab first.</p>':'')}`}
     <div class="card" style="padding:12px;margin-top:12px"><textarea class="field" id="atext" placeholder="What happened? e.g. Grabbed beers, he just started a new job…">${esc(ui.atext)}</textarea>
-    <div class="row wrap" style="margin-top:8px"><button class="btn small ghost mic" id="amic">Speak</button><label class="small row"><input type="checkbox" id="aseen" checked> saw them today</label><span class="grow"></span><button class="btn small" id="asave">Save</button></div></div></div>`}
+    <div class="row wrap" style="margin-top:8px"><button class="btn small ghost mic" id="amic">Speak</button><select class="field" id="aseen" style="width:auto;padding:7px 10px;font-size:14px"><option value="today">Saw them today</option><option value="yesterday">Saw them yesterday</option><option value="date">Saw them on…</option><option value="none">Didn't see them</option></select><input class="field" type="date" id="aseendate" hidden style="width:auto;padding:6px 8px;font-size:14px"><span class="grow"></span><button class="btn small" id="asave">Save</button></div></div></div>`}
   if(keepFocus&&id&&$('#'+id)){const e=$('#'+id);e.focus();try{e.setSelectionRange(pos,pos)}catch(x){}}}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&ui.sheet)closeSheet()});
 
+function seenDate(id){const v=$('#'+id).value;if(v==='none')return'';if(v==='yesterday'){const d=new Date(Date.now()-864e5);return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)}
+  if(v==='date')return $('#'+id+'date').value||'';return today()}
 /* ---------- router + events ---------- */
 function route(){const h=decodeURIComponent(location.hash.slice(1));if(h.startsWith('p/'))return['person',h.slice(2)];if(h.startsWith('web/'))return['web',h.slice(4)];return[h||'home','']}
 function render(keepFocus){const[r,arg]=route();const v=$('#view');const act=document.activeElement,id=act&&act.id,pos=act&&act.selectionStart;
@@ -448,6 +450,7 @@ addEventListener('hashchange',()=>{if(ui.sheet)closeSheet();render();scrollTo(0,
 document.addEventListener('input',e=>{const t=e.target;if(t.id==='sq'){ui.sq=t.value;return renderSheet(true)}if(t.id==='ap'){ui.ap=t.value;return renderSheet(true)}if(t.id==='atext'){ui.atext=t.value;return}if(t.id==='vtext'){ui.vtext=t.value;return}if(t.id==='wq'){ui.wq=t.value;return render(true)}if(t.id==='q'){ui.q=t.value;render(true)}if(t.id==='city'){ui.city=t.value;render(true)}});
 document.addEventListener('change',e=>{const t=e.target;const[r,arg]=route();
   if(t.dataset.k&&r==='person'){const p=byName(arg);let v=t.value.trim();if(t.dataset.k==='keep_in_touch_months'&&v)v=+v;if(String(F(p,t.dataset.k))!==String(v))change(p,{t:'set',k:t.dataset.k,v})}
+  if(t.id==='seen'||t.id==='aseen'){const d=$('#'+t.id+'date');d.hidden=t.value!=='date';if(!d.hidden){d.max=today();d.focus()}}
   if(t.id==='cauto'){S.autoContacts=t.checked;LS.set('people.settings',S)}
   if(t.id==='cid'){S.clientId=t.value.trim();LS.set('people.settings',S)}if(t.id==='imp')importFiles(t.files)});
 let rec=null;
@@ -463,14 +466,14 @@ document.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)r
   if(t.dataset.pick!=null){ui.apick=t.dataset.pick;ui.ap='';renderSheet();setTimeout(()=>$('#atext')&&$('#atext').focus(),30);return}
   if(t.id==='achange'){ui.apick='';renderSheet();setTimeout(()=>$('#ap')&&$('#ap').focus(),30);return}
   if(t.id==='asave'){const who=byName(ui.apick);const text=($('#atext').value||'').trim();if(!who)return toast('Pick who this is about');if(!text)return toast('Write or speak an update first');
-    const ops=[{t:'log',date:today(),text}];if($('#aseen').checked)ops.push({t:'set',k:'last_seen',v:today()});ui.atext='';closeSheet();change(who,ops);toast('Logged for '+who.name);return}
+    const ops=[{t:'log',date:today(),text}];{const d=seenDate('aseen');if(d&&d>String(F(who,'last_seen')||''))ops.push({t:'set',k:'last_seen',v:d})};ui.atext='';closeSheet();change(who,ops);toast('Logged for '+who.name);return}
   if(t.dataset.circle!=null){ui.circle=t.dataset.circle;render()}
   if(t.dataset.wc!=null){ui.wc=t.dataset.wc;render()}
   if(t.id==='wreset'){ui.wt={x:0,y:0,k:1};render()}
   if(t.dataset.city!=null){ui.city=t.dataset.city;render()}
   if(t.id==='sync'){const c=$('#cid');if(c){S.clientId=c.value.trim();LS.set('people.settings',S)}sync(true)}
   if(t.id==='clear'&&confirm('Remove the offline copy from this phone? Your Drive notes are not touched.')){people=[];save();render()}
-  if(t.id==='savelog'){const text=$('#log').value.trim();if(!text)return toast('Write or speak an update first');const ops=[{t:'log',date:today(),text}];if($('#seen').checked)ops.push({t:'set',k:'last_seen',v:today()});change(p,ops);toast('Logged')}
+  if(t.id==='savelog'){const text=$('#log').value.trim();if(!text)return toast('Write or speak an update first');const ops=[{t:'log',date:today(),text}];{const d=seenDate('seen');if(d&&d>String(F(p,'last_seen')||''))ops.push({t:'set',k:'last_seen',v:d})};change(p,ops);toast('Logged')}
   if(t.id==='ask'){const text=`Update my People notes in Obsidian. Person: ${p.name}. ${$('#log').value.trim()}`;if(navigator.share)navigator.share({text}).catch(()=>{});else{navigator.clipboard?.writeText(text);toast('Copied — paste it to Claude')}}
   if(t.id==='rsave'){const text=$('#rtext').value.trim()||('Reach out to '+p.name);remind(text,$('#rdate').value||today());change(p,{t:'log',date:today(),text:`Reminder set for ${$('#rdate').value}: ${text}`})}
   if(t.id==='mic'||t.id==='amic'||t.id==='vmic'){const bid=t.id;const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR)return toast('Voice typing is not available in this browser — use the keyboard mic');
