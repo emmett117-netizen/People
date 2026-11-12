@@ -244,7 +244,7 @@ function vWeb(sel){const g=webGraph();if(!g.nodes.length)return`<h1>Connections<
   s+=lab.map(n=>`<text x="${P[n.id].x.toFixed(1)}" y="${(P[n.id].y-P[n.id].r-4).toFixed(1)}" class="wl">${esc(n.id)}</text>`).join('');
   const t=ui.wt||{x:0,y:0,k:1};
   return webTop()+`<div class="webbox"><svg id="websvg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><g id="wg" transform="translate(${t.x} ${t.y}) scale(${t.k})">${s}</g></svg>
-  <div class="wlegend"><div><b></b>family / partner</div><div><b class="t"></b>group texts</div><div><b class="e"></b>same emails</div><div>Bigger dot = more connections · pinch to zoom · tap a dot</div></div></div>
+  <button class="btn small ghost" id="wreset" hidden style="position:absolute;right:6px;top:6px">Reset view</button><div class="wlegend"><div><b></b>family / partner</div><div><b class="t"></b>group texts</div><div><b class="e"></b>same emails</div><div>Bigger dot = more connections · pinch to zoom · tap a dot</div></div></div>
   <p class="status">${g.nodes.length} people with connections · ${g.edges.length} links</p>`}
 function vEgo(sel,g){const me=byName(sel);const nb=[];g.edges.forEach(e=>{if(e.a===sel)nb.push([e.b,e]);else if(e.b===sel)nb.push([e.a,e])});
   nb.sort((a,b)=>b[1].w-a[1].w);const ring=nb.slice(0,24).sort((a,b)=>String(F(byName(a[0]),'circle')||'~').localeCompare(String(F(byName(b[0]),'circle')||'~'))||b[1].w-a[1].w);
@@ -260,18 +260,26 @@ function vEgo(sel,g){const me=byName(sel);const nb=[];g.edges.forEach(e=>{if(e.a
   <div class="card" style="padding:12px 14px;margin-top:6px"><div class="row">${avatar(me)}<div class="grow"><div style="font-weight:700">${esc(sel)}</div><div class="sub mute small">${esc([F(me,'circle'),nb.length+' connection'+(nb.length===1?'':'s')].filter(Boolean).join(' · '))}${nb.length>ring.length?' · ring shows the closest '+ring.length:''}</div></div><a class="btn small" href="#p/${encodeURIComponent(sel)}" style="text-decoration:none">Open</a></div>
   <p class="small mute" style="margin:8px 0 6px">Tap anyone to make them the center. Thicker line = more texts together; lines around the ring = they know each other too.</p>
   <div class="pills">${nb.map(pill).join('')}</div></div>`}
-function webWire(){const svg=$('#websvg');if(!svg)return;const g=$('#wg');const t=ui.wt=ui.wt||{x:0,y:0,k:1};const pts=new Map();let moved=0,start=null,pinch=null;
-  const box=()=>svg.getBoundingClientRect();const apply=()=>g.setAttribute('transform',`translate(${t.x} ${t.y}) scale(${t.k})`);
-  const loc=e=>{const b=box(),s=svg.viewBox.baseVal.width/b.width;return{x:(e.clientX-b.left)*s,y:(e.clientY-b.top)*s}};
-  const zoom=(c,f)=>{const k=Math.min(8,Math.max(.6,t.k*f));t.x=c.x-(c.x-t.x)*k/t.k;t.y=c.y-(c.y-t.y)*k/t.k;t.k=k;apply()};
-  svg.addEventListener('pointerdown',e=>{svg.setPointerCapture(e.pointerId);pts.set(e.pointerId,loc(e));moved=0;start={...loc(e),tx:t.x,ty:t.y};
-    if(pts.size===2){const[a,b]=[...pts.values()];pinch={d:Math.hypot(a.x-b.x,a.y-b.y),k:t.k}}});
+function webWire(){const svg=$('#websvg');if(!svg)return;const g=$('#wg');const t=ui.wt=ui.wt||{x:0,y:0,k:1};
+  const W=svg.viewBox.baseVal.width,H=svg.viewBox.baseVal.height,P=webGraph().pos;const pts=new Map();let moved=0,start=null,pinch=null,multi=false;
+  const loc=e=>{const b=svg.getBoundingClientRect(),s=W/b.width;return{x:(e.clientX-b.left)*s,y:(e.clientY-b.top)*s}};
+  const clamp=()=>{t.x=Math.min(W/2,Math.max(W/2-W*t.k,t.x));t.y=Math.min(H/2,Math.max(H/2-H*t.k,t.y))};   // never lose the map off-screen
+  const apply=()=>{clamp();g.setAttribute('transform',`translate(${t.x} ${t.y}) scale(${t.k})`);const r=$('#wreset');if(r)r.hidden=t.k===1&&!t.x&&!t.y};
+  const zoom=(c,k)=>{k=Math.min(8,Math.max(1,k));t.x=c.x-(c.x-t.x)*k/t.k;t.y=c.y-(c.y-t.y)*k/t.k;t.k=k;apply()};
+  const restart=()=>{const p=[...pts.values()][0];start=p?{x:p.x,y:p.y,tx:t.x,ty:t.y}:null};
+  const nearest=p=>{const gx=(p.x-t.x)/t.k,gy=(p.y-t.y)/t.k;let best=null,bd=Infinity;
+    for(const n of webGraph().nodes){const q=P[n.id];if(!q)continue;const d=Math.hypot(q.x-gx,q.y-gy);if(d<bd){bd=d;best=n.id}}
+    return bd*t.k<=22?best:null};   // generous finger-sized hit area
+  svg.addEventListener('pointerdown',e=>{e.preventDefault();pts.set(e.pointerId,loc(e));try{svg.setPointerCapture(e.pointerId)}catch(x){}
+    if(pts.size===1){moved=0;multi=false;restart()}else{multi=true;const[p1,p2]=[...pts.values()];pinch={d:Math.hypot(p1.x-p2.x,p1.y-p2.y)||1,k:t.k}}});
   svg.addEventListener('pointermove',e=>{if(!pts.has(e.pointerId))return;pts.set(e.pointerId,loc(e));
-    if(pts.size===2&&pinch){const[a,b]=[...pts.values()];const c={x:(a.x+b.x)/2,y:(a.y+b.y)/2};zoom(c,pinch.k*Math.hypot(a.x-b.x,a.y-b.y)/pinch.d/t.k);moved=99;return}
-    const p=loc(e);moved=Math.max(moved,Math.hypot(p.x-start.x,p.y-start.y));if(moved>4){t.x=start.tx+p.x-start.x;t.y=start.ty+p.y-start.y;apply()}});
-  const up=e=>{pts.delete(e.pointerId);if(pts.size<2)pinch=null;if(!pts.size&&moved<=4){const n=e.target.closest&&e.target.closest('[data-n]');if(n)location.hash='#web/'+encodeURIComponent(n.dataset.n)}};
-  svg.addEventListener('pointerup',up);svg.addEventListener('pointercancel',e=>{pts.delete(e.pointerId);pinch=null});
-  svg.addEventListener('wheel',e=>{e.preventDefault();zoom(loc(e),e.deltaY<0?1.15:1/1.15)},{passive:false})}
+    if(pts.size>=2&&pinch){const[p1,p2]=[...pts.values()];zoom({x:(p1.x+p2.x)/2,y:(p1.y+p2.y)/2},pinch.k*Math.hypot(p1.x-p2.x,p1.y-p2.y)/pinch.d);return}
+    if(!start)return;const p=loc(e);moved=Math.max(moved,Math.hypot(p.x-start.x,p.y-start.y));if(moved>6){t.x=start.tx+p.x-start.x;t.y=start.ty+p.y-start.y;apply()}});
+  const end=e=>{if(!pts.has(e.pointerId))return;const p=pts.get(e.pointerId);pts.delete(e.pointerId);
+    if(pts.size<2)pinch=null;if(pts.size===1){restart();moved=99;return}   // lifted one finger of a pinch: keep panning smoothly
+    if(!pts.size&&e.type==='pointerup'&&!multi&&moved<=6){const n=nearest(p);if(n)location.hash='#web/'+encodeURIComponent(n)}};
+  svg.addEventListener('pointerup',end);svg.addEventListener('pointercancel',end);
+  svg.addEventListener('wheel',e=>{e.preventDefault();zoom(loc(e),t.k*(e.deltaY<0?1.15:1/1.15))},{passive:false});apply()}
 document.addEventListener('click',e=>{const n=e.target.closest&&e.target.closest('#egosvg [data-n]');if(n)location.hash='#web/'+encodeURIComponent(n.dataset.n);
   const p=e.target.closest&&e.target.closest('#egosvg [data-p]');if(p)location.hash='#p/'+encodeURIComponent(p.dataset.p)});
 
@@ -292,6 +300,7 @@ let rec=null;
 document.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;const[r,arg]=route();const p=r==='person'?byName(arg):null;
   if(t.dataset.circle!=null){ui.circle=t.dataset.circle;render()}
   if(t.dataset.wc!=null){ui.wc=t.dataset.wc;render()}
+  if(t.id==='wreset'){ui.wt={x:0,y:0,k:1};render()}
   if(t.dataset.city!=null){ui.city=t.dataset.city;render()}
   if(t.id==='sync'){S.clientId=$('#cid').value.trim();LS.set('people.settings',S);sync(true)}
   if(t.id==='clear'&&confirm('Remove the offline copy from this phone? Your Drive notes are not touched.')){people=[];save();render()}
