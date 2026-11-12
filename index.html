@@ -310,7 +310,7 @@ document.addEventListener('click',e=>{const n=e.target.closest&&e.target.closest
   const p=e.target.closest&&e.target.closest('#egosvg [data-p]');if(p)location.hash='#p/'+encodeURIComponent(p.dataset.p)});
 
 /* ---------- quick search / quick update (bottom buttons) ---------- */
-function openSheet(kind){const[r,arg]=route();ui.sheet=kind;ui.sq='';ui.ap='';ui.atext=ui.atext||'';ui.apick=kind==='add'&&r==='person'&&byName(arg)?byName(arg).name:'';renderSheet();
+function openSheet(kind){const[r,arg]=route();ui.sheet=kind;ui.sq='';ui.ap='';ui.atext=ui.atext||'';ui.apick=kind==='add'&&(r==='person'||r==='web')&&arg&&byName(arg)?byName(arg).name:'';renderSheet();
   setTimeout(()=>{const e=$(kind==='search'?'#sq':(ui.apick?'#atext':'#ap'));if(e)e.focus()},50)}
 function closeSheet(){if(rec)rec.stop();ui.sheet=null;renderSheet()}
 function renderSheet(keepFocus){const s=$('#sheet');if(!ui.sheet){s.hidden=true;s.innerHTML='';document.body.style.overflow='';return}
