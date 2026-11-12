@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>People</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg">
@@ -35,7 +35,7 @@ nav a.on{color:var(--ink);font-weight:700}nav a span{display:block;font-size:20p
 .kv{display:grid;grid-template-columns:110px 1fr;gap:8px 10px;padding:14px;align-items:center}.kv label{color:var(--mute);font-size:13px}
 .md{padding:4px 14px 12px}.md h3{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin:14px 0 4px}
 .md ul{margin:0;padding-left:18px}.md li{margin:3px 0;overflow-wrap:anywhere}.md a{color:var(--green);font-weight:600;text-decoration:none}
-.toast{position:fixed;left:50%;bottom:calc(128px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:14px;max-width:90vw;z-index:9}
+.toast{pointer-events:none;position:fixed;left:50%;bottom:calc(128px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:14px;max-width:90vw;z-index:9}
 .status{font-size:13px;color:var(--mute)}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--mute);margin-right:6px}.dot.ok{background:var(--green)}.dot.pend{background:var(--accent)}
 .mic.on{background:var(--warn);color:#fff}
 a.act{display:inline-flex;gap:6px;align-items:center;text-decoration:none;background:var(--chip);color:var(--ink);border-radius:999px;padding:8px 13px;font-size:14px;font-weight:600}
@@ -134,16 +134,16 @@ async function pushInbox(){if(!inbox.length)return;const send=inbox.slice();
     const head='# Voice inbox\n\nVoice notes from the People app. Ask Claude to "process my voice inbox" and it will update the right people and tick these off.\n\n';
     await api('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+b},body:`--${b}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: text/markdown\r\n\r\n${head+lines}\r\n--${b}--`})}
   inbox=inbox.slice(send.length);saveInbox()}
-async function sync(interactive){if(syncing)return;syncing=true;render();try{await getToken(interactive);const fid=await folderId();
-    for(const p of people){if(p.id&&(p.ops||[]).length)await pushOne(p);else if(!p.id&&p.local)await createOne(p)}
+async function sync(interactive,quiet){if(syncing)return;syncing=true;let changed=false;if(!quiet)render();try{await getToken(interactive);const fid=await folderId();
+    for(const p of people){if(p.id&&(p.ops||[]).length){await pushOne(p);changed=true}else if(!p.id&&p.local){await createOne(p);changed=true}}
     await pushInbox();
     let files=[],pt='';do{const j=await(await api(`${DR}?q=${encodeURIComponent(`'${fid}' in parents and trashed=false`)}&fields=nextPageToken,files(id,name,modifiedTime)&pageSize=1000${pt?'&pageToken='+pt:''}`)).json();files=files.concat(j.files);pt=j.nextPageToken||''}while(pt);
     files=files.filter(f=>/\.md$/i.test(f.name));const have=new Map(people.filter(p=>p.id).map(p=>[p.id,p]));const need=files.filter(f=>!have.get(f.id)||have.get(f.id).mtime!==f.modifiedTime);
     let i=0;const work=async()=>{while(i<need.length){const f=need[i++];const md=await(await api(`${DR}/${f.id}?alt=media`)).text();let p=have.get(f.id);
         if(!p){p={id:f.id,ops:[]};people.push(p);have.set(f.id,p)}p.file=f.name;p.name=f.name.normalize('NFC').replace(/\.md$/i,'');p.md=md;p.mtime=f.modifiedTime;p._v=null}};
-    await Promise.all(Array.from({length:6},work));const ids=new Set(files.map(f=>f.id));people=people.filter(p=>!p.id||ids.has(p.id));
-    people.sort((a,b)=>a.name.localeCompare(b.name));save();lastSync=new Date().toLocaleString();LS.set('people.lastSync',lastSync);toast(`Synced ${files.length} people`)}
-  catch(e){toast(e.message)}finally{syncing=false;render()}}
+    await Promise.all(Array.from({length:6},work));const ids=new Set(files.map(f=>f.id));const before=people.length;people=people.filter(p=>!p.id||ids.has(p.id));if(need.length||people.length!==before)changed=true;
+    people.sort((a,b)=>a.name.localeCompare(b.name));save();lastSync=new Date().toLocaleString();LS.set('people.lastSync',lastSync);if(!quiet)toast(`Synced ${files.length} people`)}
+  catch(e){if(!quiet)toast(e.message)}finally{syncing=false;if(!quiet||changed)render()}}
 async function change(p,op){p.ops=(p.ops||[]).concat(op);p._v=null;save();render();if(p.id&&token&&navigator.onLine){try{await pushOne(p);save();render()}catch(e){toast('Saved on this phone; will sync later')}}}
 async function remind(text,date){if(token||S.clientId){try{await getToken(!token);
       await api('https://www.googleapis.com/calendar/v3/calendars/primary/events',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary:text,start:{date},end:{date:new Date(new Date(date).getTime()+864e5).toISOString().slice(0,10)},reminders:{useDefault:true}})});
@@ -171,7 +171,7 @@ function vHome(){const pend=people.reduce((a,p)=>a+(p.ops||[]).length,0);
   const dues=people.map(p=>[due(p),p]).filter(x=>x[0]!=null&&x[0]>0).sort((a,b)=>b[0]-a[0]).slice(0,12);
   const soon=people.map(p=>[nextBirthday(p),p]).filter(x=>x[0]&&(x[0]-Date.now())<45*864e5).sort((a,b)=>a[0]-b[0]);
   const recent=people.filter(p=>F(p,'last_seen')).sort((a,b)=>String(F(b,'last_seen')).localeCompare(String(F(a,'last_seen')))).slice(0,6);
-  h+=`<p class="status"><span class="dot ${pend?'pend':(lastSync?'ok':'')}"></span>${pend?pend+' change'+(pend>1?'s':'')+' waiting to sync':(lastSync?'Synced '+esc(lastSync):'Not synced with Drive yet')}</p>`;
+  h+=`<p class="status"><span class="dot ${pend?'pend':(lastSync?'ok':'')}"></span>${pend?pend+' change'+(pend>1?'s':'')+' waiting to sync':(lastSync?'Synced '+esc(lastSync):'Not synced with Drive yet')} <button class="btn small ghost" id="sync" style="margin-left:6px;padding:3px 10px"${syncing?' disabled':''}>${syncing?'Syncing…':'Sync now'}</button></p>`;
   h+=`<h2>Time to reach out</h2>`+list(dues.map(x=>x[1]),p=>{const l=lastTouch(p);return(l?'Last contact '+l:'No contact logged')+' · every '+F(p,'keep_in_touch_months')+' mo'},'Set "keep in touch" on a person and they will show up here when they are due.');
   h+=`<h2>Birthdays coming up</h2>`+list(soon.map(x=>x[1]),p=>nextBirthday(p).toLocaleDateString(undefined,{month:'long',day:'numeric'}),'No birthdays in the next 45 days.');
   if(recent.length)h+=`<h2>Recently seen</h2>`+list(recent,p=>'Seen '+F(p,'last_seen'));
@@ -258,21 +258,26 @@ function webLayout(g,W,H){if(g.pos&&g.pos.W===W&&g.pos.H===H)return g.pos;
   const P={W,H};N.forEach((n,i)=>P[n.id]={x:15+(x[i]-x0)*sx,y:15+(y[i]-y0)*sy,r:r[i]});return g.pos=P}
 function webSize(){return{W:Math.min(innerWidth,640)-32,H:Math.max(320,innerHeight-250)}}
 function webTop(sel){const g=webGraph();const cs=[...new Set(g.nodes.map(n=>n.c).filter(Boolean))].sort((a,b)=>g.nodes.filter(n=>n.c===b).length-g.nodes.filter(n=>n.c===a).length);
-  return`<h1>Connections</h1><input class="field" id="wq" type="search" list="wnames" placeholder="Find a person" value=""><datalist id="wnames">${g.nodes.map(n=>`<option value="${esc(n.id)}">`).join('')}</datalist>
+  const q=(ui.wq||'').trim().toLowerCase();const hits=q?people.filter(p=>p.name.toLowerCase().includes(q)).sort((a,b)=>(a.name.toLowerCase().startsWith(q)?0:1)-(b.name.toLowerCase().startsWith(q)?0:1)||a.name.localeCompare(b.name)).slice(0,8):[];
+  return`<h1>Connections</h1><input class="field" id="wq" type="search" placeholder="Find a person" value="${esc(ui.wq||'')}" autocomplete="off">${q?`<div class="card" style="margin-top:6px">${hits.length?hits.map(p=>`<button class="pick" data-wgo="${esc(p.name)}">${avatar(p)}<div class="grow"><div>${esc(p.name)}</div><div class="sub mute small">${(g.deg[p.name]||0)+' connection'+(g.deg[p.name]===1?'':'s')}</div></div></button>`).join(''):'<p class="mute" style="padding:10px 14px;margin:0">Nobody by that name.</p>'}</div>`:''}
   ${sel?`<p style="margin:10px 0 0"><a class="mute" href="#web" style="text-decoration:none">‹ Back to everyone</a></p>`:`<div class="chips" style="margin-top:10px">${['',...cs].map(c=>`<button class="chip${(ui.wc||'')===c?' on':''}" data-wc="${esc(c)}">${c?`<i class="cdot" style="background:${wcol(c)}"></i>`:''}${esc(c||'All')}</button>`).join('')}</div>`}`}
 function vWeb(sel){const g=webGraph();if(!g.nodes.length)return`<h1>Connections</h1><p class="mute">No links between people yet. Links come from [[names]] in notes: partners, group texts, shared emails and anything you mention in a log.</p>`;
   if(sel&&byName(sel))return vEgo(byName(sel).name,g);const{W,H}=webSize();const P=webLayout(g,W,H);const wc=ui.wc||'';
-  const on=n=>!wc||byName(n)&&F(byName(n),'circle')===wc;
-  let s=g.edges.map(e=>{const a=P[e.a],b=P[e.b],dim=!(on(e.a)&&on(e.b));return`<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" class="we ${e.k.includes('rel')?'rel':''}${e.k.length===1&&e.k[0]==='email'?' em':''}" style="opacity:${dim?.06:.5};stroke-width:${e.k.includes('rel')?1.6:Math.min(1.4,.5+e.w/40).toFixed(2)}"/>`}).join('');
-  s+=g.nodes.map(n=>`<circle data-n="${esc(n.id)}" cx="${P[n.id].x.toFixed(1)}" cy="${P[n.id].y.toFixed(1)}" r="${P[n.id].r.toFixed(1)}" fill="${wcol(n.c)}" class="wn" style="opacity:${on(n.id)?1:.12}"/>`).join('');
-  const boxes=[],lab=[];[...g.nodes].filter(n=>on(n.id)).sort((a,b)=>b.d-a.d).forEach(n=>{if(lab.length>=(wc?20:12))return;const p=P[n.id],w=n.id.length*5.6,b=[p.x-w/2,p.x+w/2,p.y-p.r-15,p.y-p.r-2];
-    if(boxes.some(o=>!(b[1]<o[0]||b[0]>o[1]||b[3]<o[2]||b[2]>o[3])))return;boxes.push(b);lab.push(n)});
-  s+=lab.map(n=>`<text x="${P[n.id].x.toFixed(1)}" y="${(P[n.id].y-P[n.id].r-4).toFixed(1)}" class="wl">${esc(n.id)}</text>`).join('');
-  const t=ui.wt||{x:0,y:0,k:1};
-  return webTop()+`<div class="webbox"><svg id="websvg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><g id="wg" transform="translate(${t.x} ${t.y}) scale(${t.k})">${s}</g></svg>
+  const t=ui.wt||{x:0,y:0,k:1};const s=webDraw(g,P,t,W,H);
+  return webTop()+`<div class="webbox"><svg id="websvg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><g id="wg">${s}</g></svg>
   <button class="btn small ghost" id="wreset" hidden style="position:absolute;right:6px;top:6px">Reset view</button><div class="wlegend"><div><b></b>family / partner</div><div><b class="t"></b>group texts</div><div><b class="e"></b>same emails</div><div>Bigger dot = more connections · pinch to zoom · tap a dot</div></div></div>
   <p class="status">${g.nodes.length} people with connections · ${g.edges.length} links</p>`}
-function vEgo(sel,g){const me=byName(sel);const nb=[];g.edges.forEach(e=>{if(e.a===sel)nb.push([e.b,e]);else if(e.b===sel)nb.push([e.a,e])});
+function webDraw(g,P,t,W,H){const wc=ui.wc||'';const on=n=>!wc||byName(n)&&F(byName(n),'circle')===wc;
+  const X=v=>(v*t.k+t.x).toFixed(1),Y=v=>(v*t.k+t.y).toFixed(1);const grow=Math.pow(t.k,.25);   // dots grow gently, not with the zoom
+  const inV=p=>{const x=p.x*t.k+t.x,y=p.y*t.k+t.y;return x>-20&&x<W+20&&y>-20&&y<H+20};
+  let s=g.edges.map(e=>{const a=P[e.a],b=P[e.b];if(!inV(a)&&!inV(b))return'';const dim=!(on(e.a)&&on(e.b));
+    return`<line x1="${X(a.x)}" y1="${Y(a.y)}" x2="${X(b.x)}" y2="${Y(b.y)}" class="we ${e.k.includes('rel')?'rel':''}${e.k.length===1&&e.k[0]==='email'?' em':''}" style="opacity:${dim?.06:.5};stroke-width:${e.k.includes('rel')?1.6:Math.min(1.4,.5+e.w/40).toFixed(2)}"/>`}).join('');
+  s+=g.nodes.map(n=>{const p=P[n.id];if(!inV(p))return'';return`<circle data-n="${esc(n.id)}" cx="${X(p.x)}" cy="${Y(p.y)}" r="${(p.r*grow).toFixed(1)}" fill="${wcol(n.c)}" class="wn" style="opacity:${on(n.id)?1:.12}"/>`}).join('');
+  const max=Math.round((wc?20:12)*t.k*t.k);const boxes=[],lab=[];   // more names appear as you zoom in
+  [...g.nodes].filter(n=>on(n.id)&&inV(P[n.id])).sort((a,b)=>b.d-a.d).forEach(n=>{if(lab.length>=max)return;const p=P[n.id],x=p.x*t.k+t.x,y=p.y*t.k+t.y,r=p.r*grow,w=n.id.length*5.8,bx=[x-w/2,x+w/2,y-r-16,y-r-2];
+    if(boxes.some(o=>!(bx[1]<o[0]||bx[0]>o[1]||bx[3]<o[2]||bx[2]>o[3])))return;boxes.push(bx);lab.push([n,x,y-r-4])});
+  return s+lab.map(([n,x,y])=>`<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="wl">${esc(n.id)}</text>`).join('')}
+function vEgo(sel,g){const me=byName(sel);if(!g.deg[sel])return webTop(sel)+`<div class="card" style="padding:14px;margin-top:10px"><div class="row">${avatar(me)}<div class="grow" style="font-weight:700">${esc(sel)}</div><a class="btn small" href="#p/${encodeURIComponent(sel)}" style="text-decoration:none">Open</a></div><p class="mute small" style="margin:10px 0 0">No connections yet. Add one by writing their people as [[Name]] in a note or update, e.g. “Brother: [[Name]]”.</p></div>`;const nb=[];g.edges.forEach(e=>{if(e.a===sel)nb.push([e.b,e]);else if(e.b===sel)nb.push([e.a,e])});
   nb.sort((a,b)=>b[1].w-a[1].w);const ring=nb.slice(0,24).sort((a,b)=>String(F(byName(a[0]),'circle')||'~').localeCompare(String(F(byName(b[0]),'circle')||'~'))||b[1].w-a[1].w);
   const W=Math.min(innerWidth,640)-32,H=Math.min(W+30,460),cx=W/2,cy=H/2,R=Math.min(W*.4,H*.38);const P={};
   ring.forEach(([n],i)=>{const a=-Math.PI/2+i*2*Math.PI/Math.max(ring.length,1);P[n]={x:cx+R*Math.cos(a)*1.06,y:cy+R*Math.sin(a)}});
@@ -290,7 +295,7 @@ function webWire(){const svg=$('#websvg');if(!svg)return;const g=$('#wg');const 
   const W=svg.viewBox.baseVal.width,H=svg.viewBox.baseVal.height,P=webGraph().pos;const pts=new Map();let moved=0,start=null,pinch=null,multi=false;
   const loc=e=>{const b=svg.getBoundingClientRect(),s=W/b.width;return{x:(e.clientX-b.left)*s,y:(e.clientY-b.top)*s}};
   const clamp=()=>{t.x=Math.min(W/2,Math.max(W/2-W*t.k,t.x));t.y=Math.min(H/2,Math.max(H/2-H*t.k,t.y))};   // never lose the map off-screen
-  const apply=()=>{clamp();g.setAttribute('transform',`translate(${t.x} ${t.y}) scale(${t.k})`);const r=$('#wreset');if(r)r.hidden=t.k===1&&!t.x&&!t.y};
+  let raf=0;const G=webGraph();const apply=()=>{clamp();if(!raf)raf=requestAnimationFrame(()=>{raf=0;g.innerHTML=webDraw(G,G.pos,t,W,H)});const r=$('#wreset'),home=t.k===1&&!t.x&&!t.y;if(r)r.hidden=home;const lg=$('.wlegend');if(lg)lg.style.display=home?'':'none'};
   const zoom=(c,k)=>{k=Math.min(8,Math.max(1,k));t.x=c.x-(c.x-t.x)*k/t.k;t.y=c.y-(c.y-t.y)*k/t.k;t.k=k;apply()};
   const restart=()=>{const p=[...pts.values()][0];start=p?{x:p.x,y:p.y,tx:t.x,ty:t.y}:null};
   const nearest=p=>{const gx=(p.x-t.x)/t.k,gy=(p.y-t.y)/t.k;let best=null,bd=Infinity;
@@ -301,7 +306,10 @@ function webWire(){const svg=$('#websvg');if(!svg)return;const g=$('#wg');const 
   svg.addEventListener('pointermove',e=>{if(!pts.has(e.pointerId))return;pts.set(e.pointerId,loc(e));
     if(pts.size>=2&&pinch){const[p1,p2]=[...pts.values()];zoom({x:(p1.x+p2.x)/2,y:(p1.y+p2.y)/2},pinch.k*Math.hypot(p1.x-p2.x,p1.y-p2.y)/pinch.d);return}
     if(!start)return;const p=loc(e);moved=Math.max(moved,Math.hypot(p.x-start.x,p.y-start.y));if(moved>6){t.x=start.tx+p.x-start.x;t.y=start.ty+p.y-start.y;apply()}});
-  const end=e=>{if(!pts.has(e.pointerId))return;const p=pts.get(e.pointerId);pts.delete(e.pointerId);
+  const rescue=()=>{const ns=G.nodes.map(n=>G.pos[n.id]).filter(Boolean);const sx=q=>q.x*t.k+t.x,sy=q=>q.y*t.k+t.y;
+    if(ns.some(q=>sx(q)>0&&sx(q)<W&&sy(q)>0&&sy(q)<H))return;let b=ns[0],bd=Infinity;for(const q of ns){const d=Math.hypot(sx(q)-W/2,sy(q)-H/2);if(d<bd){bd=d;b=q}}
+    t.x+=W/2-sx(b);t.y+=H/2-sy(b);apply()};   // never leave an empty screen: bring the nearest person back to the middle
+  const end=e=>{if(!pts.has(e.pointerId))return;const p=pts.get(e.pointerId);pts.delete(e.pointerId);if(!pts.size)rescue();
     if(pts.size<2)pinch=null;if(pts.size===1){restart();moved=99;return}   // lifted one finger of a pinch: keep panning smoothly
     if(!pts.size&&e.type==='pointerup'&&!multi&&moved<=6){const n=nearest(p);if(n)location.hash='#web/'+encodeURIComponent(n)}};
   svg.addEventListener('pointerup',end);svg.addEventListener('pointercancel',end);
@@ -337,13 +345,13 @@ function render(keepFocus){const[r,arg]=route();const v=$('#view');const act=doc
   if(r==='web')webWire();
   if(keepFocus&&id&&$('#'+id)){const e=$('#'+id);e.focus();try{e.setSelectionRange(pos,pos)}catch(x){}}}
 addEventListener('hashchange',()=>{if(ui.sheet)closeSheet();render();scrollTo(0,0)});
-document.addEventListener('input',e=>{const t=e.target;if(t.id==='sq'){ui.sq=t.value;return renderSheet(true)}if(t.id==='ap'){ui.ap=t.value;return renderSheet(true)}if(t.id==='atext'){ui.atext=t.value;return}if(t.id==='vtext'){ui.vtext=t.value;return}if(t.id==='q'){ui.q=t.value;render(true)}if(t.id==='city'){ui.city=t.value;render(true)}});
+document.addEventListener('input',e=>{const t=e.target;if(t.id==='sq'){ui.sq=t.value;return renderSheet(true)}if(t.id==='ap'){ui.ap=t.value;return renderSheet(true)}if(t.id==='atext'){ui.atext=t.value;return}if(t.id==='vtext'){ui.vtext=t.value;return}if(t.id==='wq'){ui.wq=t.value;return render(true)}if(t.id==='q'){ui.q=t.value;render(true)}if(t.id==='city'){ui.city=t.value;render(true)}});
 document.addEventListener('change',e=>{const t=e.target;const[r,arg]=route();
   if(t.dataset.k&&r==='person'){const p=byName(arg);let v=t.value.trim();if(t.dataset.k==='keep_in_touch_months'&&v)v=+v;if(String(F(p,t.dataset.k))!==String(v))change(p,{t:'set',k:t.dataset.k,v})}
-  if(t.id==='wq'){const p=byName(t.value.trim());if(p)location.hash='#web/'+encodeURIComponent(p.name)}
   if(t.id==='cid'){S.clientId=t.value.trim();LS.set('people.settings',S)}if(t.id==='imp')importFiles(t.files)});
 let rec=null;
 document.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;const[r,arg]=route();const p=r==='person'?byName(arg):null;
+  if(t.dataset.wgo!=null){ui.wq='';location.hash='#web/'+encodeURIComponent(t.dataset.wgo);return}
   if(t.id==='shuffle'){ui.rand=null;render();return}
   if(t.id==='vsave'){const text=($('#vtext').value||'').trim();if(!text)return toast('Say or type a note first');if(rec)rec.stop();
     const d=new Date();inbox.push({t:today()+' '+d.toTimeString().slice(0,5),text});saveInbox();ui.vtext='';render();
@@ -357,7 +365,7 @@ document.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)r
   if(t.dataset.wc!=null){ui.wc=t.dataset.wc;render()}
   if(t.id==='wreset'){ui.wt={x:0,y:0,k:1};render()}
   if(t.dataset.city!=null){ui.city=t.dataset.city;render()}
-  if(t.id==='sync'){S.clientId=$('#cid').value.trim();LS.set('people.settings',S);sync(true)}
+  if(t.id==='sync'){const c=$('#cid');if(c){S.clientId=c.value.trim();LS.set('people.settings',S)}sync(true)}
   if(t.id==='clear'&&confirm('Remove the offline copy from this phone? Your Drive notes are not touched.')){people=[];save();render()}
   if(t.id==='savelog'){const text=$('#log').value.trim();if(!text)return toast('Write or speak an update first');const ops=[{t:'log',date:today(),text}];if($('#seen').checked)ops.push({t:'set',k:'last_seen',v:today()});change(p,ops);toast('Logged')}
   if(t.id==='ask'){const text=`Update my People notes in Obsidian. Person: ${p.name}. ${$('#log').value.trim()}`;if(navigator.share)navigator.share({text}).catch(()=>{});else{navigator.clipboard?.writeText(text);toast('Copied — paste it to Claude')}}
@@ -371,7 +379,10 @@ document.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)r
     people.push({id:null,local:true,file:name.replace(/[\\/:*?"<>|#^\[\]]/g,'')+'.md',name,md,ops:[]});people.sort((a,b)=>a.name.localeCompare(b.name));save();location.hash='#p/'+encodeURIComponent(name);if(token)sync(false)}});
 addEventListener('online',()=>{if(token)sync(false)});
 if('serviceWorker'in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});
-render();
+['gesturestart','gesturechange'].forEach(ev=>document.addEventListener(ev,e=>e.preventDefault(),{passive:false}));
+const autoSync=()=>{if(!S.clientId||!people.length||syncing)return;sync(false,true)};
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')autoSync()});
+render();setTimeout(autoSync,400);
 </script>
 </body>
 </html>
