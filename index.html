@@ -108,7 +108,7 @@ function nextBirthday(p){const b=String(F(p,'birthday'));const m=b.match(/(\d\d)
   let d=new Date(n.getFullYear(),+m[1]-1,+m[2]);if(d<new Date(n.getFullYear(),n.getMonth(),n.getDate()))d=new Date(n.getFullYear()+1,+m[1]-1,+m[2]);return d}
 
 /* ---------- Google (Drive, Calendar, Tasks) ---------- */
-const SCOPES='https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks';
+const SCOPES='https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/contacts';
 function loadGis(){return new Promise((ok,no)=>{if(window.google&&google.accounts)return ok();const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.onload=ok;s.onerror=()=>no(new Error('Could not load Google sign-in'));document.head.appendChild(s)})}
 async function getToken(interactive){if(token&&Date.now()<tokenExp-6e4)return token;if(!S.clientId)throw new Error('Add your Google client ID in Settings first');
   await loadGis();return new Promise((ok,no)=>{const c=google.accounts.oauth2.initTokenClient({client_id:S.clientId,scope:SCOPES,prompt:interactive?'':'none',
@@ -134,6 +134,100 @@ async function pushInbox(){if(!inbox.length)return;const send=inbox.slice();
     const head='# Voice inbox\n\nVoice notes from the People app. Ask Claude to "process my voice inbox" and it will update the right people and tick these off.\n\n';
     await api('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+b},body:`--${b}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: text/markdown\r\n\r\n${head+lines}\r\n--${b}--`})}
   inbox=inbox.slice(send.length);saveInbox()}
+/* ---------- updates written by Claude (vault folder "Claude updates") ---------- */
+const UPD_FOLDER='Claude updates';
+function noteTemplate(name,f={},context=[]){const y=v=>JSON.stringify(v??'');const arrs=k=>'['+(f[k]||[]).map(x=>JSON.stringify(x)).join(', ')+']';
+  const tags=['person'].concat(f.circle?['circle/'+String(f.circle).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')]:[]);
+  return`---\ntype: person\ncircle: ${y(f.circle)}\ntags: [${tags.join(', ')}]\ncity: ${y(f.city)}\ncity_guess: ""\ncompany: ${y(f.company)}\ntitle: ${y(f.title)}\ninterests: ${y(f.interests)}\npartner: ${y(f.partner)}\nbirthday: ${f.birthday||''}\nphone: ${arrs('phone')}\nemail: ${arrs('email')}\nlast_seen: \nlast_contact: \nkeep_in_touch_months: \ntier: \ncontact_ids: []\n---\n\n# ${name}\n\n## Context\n${(context.length?context:['']).map(c=>'- '+c).join('\n')}\n\n## Log\n`}
+function addToSection(md,section,line){const E=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');const re=new RegExp('^## '+E(section)+'[ \\t]*$','m');
+  if(re.test(md))return md.replace(re,m=>m+'\n'+line).replace(new RegExp('(^## '+E(section)+'[ \\t]*\\n(?:- .*\\S.*\\n)*)- ?[ \\t]*\\n','m'),'$1');
+  const before=section==='Connections'?/^## (Context|Texts|Email|Log)\b.*$/m:/^## Log\b.*$/m;const m=md.match(before);
+  if(m)return md.slice(0,m.index)+'## '+section+'\n'+line+'\n\n'+md.slice(m.index);return md.replace(/\s*$/,'')+'\n\n## '+section+'\n'+line+'\n'}
+function connectionsPart(md){const i=md.indexOf('## Connections');if(i<0)return'';const j=md.indexOf('\n## ',i+5);return md.slice(i,j<0?md.length:j)}
+function addConn(md,label,target){if(connectionsPart(md).includes('[['+target+']]'))return md;return addToSection(md,'Connections','- '+label+': [['+target+']]')}
+function dropConn(md,target){const part=connectionsPart(md);if(!part)return md;const kept=part.split('\n').filter(l=>!(/^\s*-/.test(l)&&l.includes('[['+target+']]')));return md.replace(part,kept.join('\n'))}
+async function applyClaudeUpdates(){const q=encodeURIComponent(`name='${UPD_FOLDER}' and '${VAULT_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const fo=(await(await api(`${DR}?q=${q}&fields=files(id)`)).json()).files[0];if(!fo)return 0;
+  const lq=encodeURIComponent(`'${fo.id}' in parents and trashed=false and not name contains '.result'`);
+  const files=((await(await api(`${DR}?q=${lq}&fields=files(id,name)&orderBy=name&pageSize=200`)).json()).files||[]).filter(f=>/\.json$/i.test(f.name));
+  let total=0;
+  for(const f of files){let u;try{u=JSON.parse(await(await api(`${DR}/${f.id}?alt=media`)).text())}catch(e){continue}
+    const res={file:f.name,applied_at:new Date().toISOString(),applied:0,skipped:[]};const touched=new Map(),created=[],renamed=[],trashed=[];
+    const get=n=>{const p=byName(n);if(!p)return null;if(!touched.has(p))touched.set(p,applyOps(p.md,p.ops));return p};
+    const md=p=>touched.get(p),put=(p,m)=>touched.set(p,m);
+    (u.changes||[]).forEach((c,i)=>{const skip=why=>res.skipped.push({i,op:c.op,why});try{
+      if(c.op==='create'){if(byName(c.person))return skip('already exists');const p={id:null,local:true,file:c.person.replace(/[\\/:*?"<>|#^\[\]]/g,'')+'.md',name:c.person,md:noteTemplate(c.person,c.fields||{},c.context||[]),ops:[]};
+        people.push(p);created.push(p);touched.set(p,p.md);res.applied++;return}
+      if(c.op==='connect'){const a=get(c.a),b=get(c.b);if(!a||!b)return skip('person not found: '+(!a?c.a:c.b));put(a,addConn(md(a),c.label||'Connected to',b.name));put(b,addConn(md(b),c.label_b||c.label||'Connected to',a.name));res.applied++;return}
+      if(c.op==='disconnect'){const a=get(c.a),b=get(c.b);if(!a||!b)return skip('person not found');put(a,dropConn(md(a),b.name));put(b,dropConn(md(b),a.name));res.applied++;return}
+      if(c.op==='rename'){const p=get(c.from);if(!p)return skip('person not found: '+c.from);if(byName(c.to)&&byName(c.to)!==p)return skip('name already used: '+c.to);
+        put(p,md(p).replace(/^# .*$/m,'# '+c.to));for(const o of people){const m=touched.has(o)?touched.get(o):applyOps(o.md,o.ops);if(m.includes('[['+p.name+']]')||m.includes('[['+p.name+'|'))touched.set(o,m.split('[['+p.name+']]').join('[['+c.to+']]').split('[['+p.name+'|').join('[['+c.to+'|'))}
+        renamed.push([p,c.to]);res.applied++;return}
+      if(c.op==='trash'){const p=get(c.person);if(!p)return skip('person not found');trashed.push(p);res.applied++;return}
+      if(c.op==='inbox_done'){res.inbox=(res.inbox||[]).concat(c.items||[]);res.applied++;return}
+      const p=get(c.person);if(!p)return skip('person not found: '+c.person);
+      if(c.op==='log'){put(p,addLog(md(p),c.date||today(),c.text));if(c.seen)put(p,setField(md(p),'last_seen',c.date||today()));res.applied++}
+      else if(c.op==='set'){put(p,setField(md(p),c.field,c.value));res.applied++}
+      else if(c.op==='add_line'){put(p,addToSection(md(p),c.section||'Context','- '+c.text));res.applied++}
+      else if(c.op==='replace'){if(!md(p).includes(c.find))return skip('text not found');put(p,md(p).split(c.find).join(c.with??''));res.applied++}
+      else skip('unknown op')}catch(e){skip(String(e.message||e))}});
+    // write everything to Drive
+    for(const[p,m]of touched){if(trashed.includes(p))continue;if(!p.id){p.md=m;p.ops=[];await createOne(p);continue}
+      if(m===p.md&&!(p.ops||[]).length)continue;const j=await(await api(`https://www.googleapis.com/upload/drive/v3/files/${p.id}?uploadType=media&fields=modifiedTime`,{method:'PATCH',headers:{'Content-Type':'text/markdown'},body:m})).json();p.md=m;p.ops=[];p.mtime=j.modifiedTime;p._v=null}
+    for(const[p,to]of renamed){const file=to.replace(/[\\/:*?"<>|#^\[\]]/g,'')+'.md';if(p.id){const j=await(await api(`${DR}/${p.id}?fields=modifiedTime`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:file})})).json();p.mtime=j.modifiedTime}p.name=to;p.file=file;p._v=null}
+    for(const p of trashed){if(p.id)await api(`${DR}/${p.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({trashed:true})});people=people.filter(x=>x!==p)}
+    if(res.inbox&&res.inbox.length)await markInboxDone(res.inbox);
+    const b='x'+Date.now();await api('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+b},
+      body:`--${b}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({name:f.name.replace(/\.json$/i,'.result.json'),parents:[fo.id],mimeType:'application/json'})}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(res,null,1)}\r\n--${b}--`});
+    await api(`${DR}/${f.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({trashed:true})});total+=res.applied}
+  people.sort((a,b)=>a.name.localeCompare(b.name));save();return total}
+async function markInboxDone(items){const q=encodeURIComponent(`name='${INBOX}' and '${VAULT_ID}' in parents and trashed=false`);const f=(await(await api(`${DR}?q=${q}&fields=files(id)`)).json()).files[0];if(!f)return;
+  let t=await(await api(`${DR}/${f.id}?alt=media`)).text();const lines=t.split('\n');
+  for(const it of items){const k=lines.findIndex(l=>l.startsWith('- [ ]')&&l.includes(it));if(k>=0)lines[k]=lines[k].replace('- [ ]','- [x]')}
+  const out=lines.join('\n');if(out!==t)await api(`https://www.googleapis.com/upload/drive/v3/files/${f.id}?uploadType=media`,{method:'PATCH',headers:{'Content-Type':'text/markdown'},body:out})}
+
+/* ---------- push the basics to Google Contacts ---------- */
+const PPL='https://people.googleapis.com/v1';
+const digits10=s=>{const d=String(s).replace(/\D/g,'');return d.length>=10?d.slice(-10):d};
+function vaultBasics(p){const fm=view(p).fm;const name=p.name.replace(/\s*\(.*?\)\s*/g,' ').replace(/\s+/g,' ').trim();const parts=name.split(/\s+/);
+  const b=String(fm.birthday||'').match(/^(\d{4}|-)-?(\d\d)-(\d\d)$/);
+  return{name:p.name,plain:name,given:parts.length>1?parts.slice(0,-1).join(' '):name,family:parts.length>1?parts[parts.length-1]:'',
+    phones:arr(fm.phone).map(String).filter(x=>digits10(x).length>=7),emails:arr(fm.email).map(String).filter(x=>x.includes('@')),
+    birthday:b?{month:+b[2],day:+b[3],...(/^\d{4}$/.test(b[1])?{year:+b[1]}:{})}:null,company:String(fm.company||''),title:String(fm.title||'')}}
+async function contactsPlan(){let all=[],pt='';do{const j=await(await api(`${PPL}/people/me/connections?personFields=names,phoneNumbers,emailAddresses,birthdays,organizations&pageSize=1000${pt?'&pageToken='+pt:''}`)).json();all=all.concat(j.connections||[]);pt=j.nextPageToken||''}while(pt);
+  const byPhone=new Map(),byEmail=new Map(),byNm=new Map();
+  for(const c of all){(c.phoneNumbers||[]).forEach(x=>{const k=digits10(x.canonicalForm||x.value);if(k.length>=7&&!byPhone.has(k))byPhone.set(k,c)});(c.emailAddresses||[]).forEach(x=>byEmail.set(String(x.value).toLowerCase(),c));const n=(c.names||[])[0];if(n){const k=String(n.displayName||'').toLowerCase();byNm.set(k,(byNm.get(k)||[]).concat(c))}}
+  const byRn=new Map(all.map(c=>[c.resourceName,c]));const cmap=S.cmap||{};
+  const plan=[],used=new Set();
+  const byPhoneAll=new Map();for(const c of all)(c.phoneNumbers||[]).forEach(x=>{const k=digits10(x.canonicalForm||x.value);if(k.length>=7)byPhoneAll.set(k,(byPhoneAll.get(k)||[]).concat(c))});
+  for(const p of people){const v=vaultBasics(p);   // best match first: same name, then email, then any shared phone not already claimed
+    const cands=[byRn.get(cmap[p.name]),...(byNm.get(p.name.toLowerCase())||[]),...v.emails.map(e=>byEmail.get(e.toLowerCase())),...v.phones.flatMap(x=>byPhoneAll.get(digits10(x))||[]),...(byNm.get(v.plain.toLowerCase())||[])].filter(Boolean);
+    const c=cands.find(x=>!used.has(x.resourceName))||null;
+    if(!c){plan.push({kind:'create',name:p.name,v,what:['new contact']});continue}used.add(c.resourceName);cmap[p.name]=c.resourceName;
+    const what=[],body={resourceName:c.resourceName,etag:c.etag},mask=[];
+    const gName=((c.names||[])[0]||{}).displayName||'';if(![p.name,v.plain].map(s=>s.toLowerCase()).includes(gName.toLowerCase())){body.names=[{givenName:v.given,familyName:v.family}];mask.push('names');what.push(`name “${gName}” → “${v.plain}”`)}
+    const gp=(c.phoneNumbers||[]).map(x=>digits10(x.canonicalForm||x.value));const addP=v.phones.filter(x=>!gp.includes(digits10(x)));
+    if(addP.length){body.phoneNumbers=(c.phoneNumbers||[]).map(x=>({value:x.value,type:x.type})).concat(addP.map(x=>({value:x})));mask.push('phoneNumbers');what.push('add phone '+addP.join(', '))}
+    const ge=(c.emailAddresses||[]).map(x=>String(x.value).toLowerCase());const addE=v.emails.filter(x=>!ge.includes(x.toLowerCase()));
+    if(addE.length){body.emailAddresses=(c.emailAddresses||[]).map(x=>({value:x.value,type:x.type})).concat(addE.map(x=>({value:x})));mask.push('emailAddresses');what.push('add email '+addE.join(', '))}
+    if(v.birthday&&!(c.birthdays||[]).length){body.birthdays=[{date:v.birthday}];mask.push('birthdays');what.push('add birthday')}
+    if((v.company||v.title)&&!(c.organizations||[]).length){body.organizations=[{name:v.company,title:v.title}];mask.push('organizations');what.push('add work: '+[v.title,v.company].filter(Boolean).join(', '))}
+    if(mask.length)plan.push({kind:'update',name:p.name,body,mask,what})}
+  S.cmap=cmap;LS.set('people.settings',S);return plan}
+function contactBody(v){const b={names:[{givenName:v.given,familyName:v.family}]};if(v.phones.length)b.phoneNumbers=v.phones.map(x=>({value:x}));
+  if(v.emails.length)b.emailAddresses=v.emails.map(x=>({value:x}));if(v.birthday)b.birthdays=[{date:v.birthday}];if(v.company||v.title)b.organizations=[{name:v.company,title:v.title}];return b}
+async function contactsPush(plan){let done=0;const cr=plan.filter(x=>x.kind==='create'),up=plan.filter(x=>x.kind==='update');
+  S.cmap=S.cmap||{};for(let i=0;i<cr.length;i+=150){const part=cr.slice(i,i+150);const j=await(await api(`${PPL}/people:batchCreateContacts`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contacts:part.map(x=>({contactPerson:contactBody(x.v)})),readMask:'names'})})).json();
+    (j.createdPeople||[]).forEach((r,k)=>{const rn=r.person&&r.person.resourceName;if(rn&&part[k])S.cmap[part[k].name]=rn});LS.set('people.settings',S);done+=part.length}
+  for(let i=0;i<up.length;i+=150){const chunk=up.slice(i,i+150);
+    // a field in the shared mask that a contact doesn't set would be cleared, so group updates by identical masks
+    const groups={};chunk.forEach(x=>{(groups[x.mask.join(',')]=groups[x.mask.join(',')]||[]).push(x)});
+    for(const[m,g]of Object.entries(groups)){const contacts={};g.forEach(x=>contacts[x.body.resourceName]=x.body);
+      await api(`${PPL}/people:batchUpdateContacts`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contacts,updateMask:m,readMask:'names'})});done+=g.length}}
+  S.contactsPushed=new Date().toISOString();LS.set('people.settings',S);return done}
+async function autoContacts(){if(!S.autoContacts||!token)return;if(S.contactsPushed&&Date.now()-Date.parse(S.contactsPushed)<20*3600e3)return;
+  try{const plan=await contactsPlan();if(plan.length){const n=await contactsPush(plan);toast(`Google Contacts: ${n} updated`)}else{S.contactsPushed=new Date().toISOString();LS.set('people.settings',S)}}catch(e){}}
+
 async function sync(interactive,quiet){if(syncing)return;syncing=true;let changed=false;if(!quiet)render();try{await getToken(interactive);const fid=await folderId();
     for(const p of people){if(p.id&&(p.ops||[]).length){await pushOne(p);changed=true}else if(!p.id&&p.local){await createOne(p);changed=true}}
     await pushInbox();
@@ -142,8 +236,9 @@ async function sync(interactive,quiet){if(syncing)return;syncing=true;let change
     let i=0;const work=async()=>{while(i<need.length){const f=need[i++];const md=await(await api(`${DR}/${f.id}?alt=media`)).text();let p=have.get(f.id);
         if(!p){p={id:f.id,ops:[]};people.push(p);have.set(f.id,p)}p.file=f.name;p.name=f.name.normalize('NFC').replace(/\.md$/i,'');p.md=md;p.mtime=f.modifiedTime;p._v=null}};
     await Promise.all(Array.from({length:6},work));const ids=new Set(files.map(f=>f.id));const before=people.length;people=people.filter(p=>!p.id||ids.has(p.id));if(need.length||people.length!==before)changed=true;
+    const nUp=await applyClaudeUpdates();if(nUp){changed=true;toast(`Applied ${nUp} update${nUp>1?'s':''} from Claude`)}
     people.sort((a,b)=>a.name.localeCompare(b.name));save();lastSync=new Date().toLocaleString();LS.set('people.lastSync',lastSync);if(!quiet)toast(`Synced ${files.length} people`)}
-  catch(e){if(!quiet)toast(e.message)}finally{syncing=false;if(!quiet||changed)render()}}
+  catch(e){if(!quiet)toast(e.message)}finally{syncing=false;if(!quiet||changed)render();autoContacts()}}
 async function change(p,op){p.ops=(p.ops||[]).concat(op);p._v=null;save();render();if(p.id&&token&&navigator.onLine){try{await pushOne(p);save();render()}catch(e){toast('Saved on this phone; will sync later')}}}
 async function remind(text,date){if(token||S.clientId){try{await getToken(!token);
       await api('https://www.googleapis.com/calendar/v3/calendars/primary/events',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({summary:text,start:{date},end:{date:new Date(new Date(date).getTime()+864e5).toISOString().slice(0,10)},reminders:{useDefault:true}})});
@@ -223,6 +318,11 @@ function vSettings(){return`<h1>Settings</h1>
   <h2>Google Drive (your Obsidian vault)</h2><div class="card" style="padding:14px"><p class="small mute" style="margin-top:0">Reads and writes the notes in the vault's People folder, and adds reminders to Google Calendar and Tasks. Paste the client ID from your Google Cloud project once.</p>
   <input class="field" id="cid" placeholder="Google OAuth client ID (…apps.googleusercontent.com)" value="${esc(S.clientId)}">
   <div class="row wrap" style="margin-top:10px"><button class="btn" id="sync"${syncing?' disabled':''}>${syncing?'Syncing…':(token?'Sync now':'Sign in and sync')}</button><span class="status">${lastSync?'Last synced '+esc(lastSync):''}</span></div></div>
+  <h2>Google Contacts</h2><div class="card" style="padding:14px"><p class="small mute" style="margin-top:0">Your vault is the master copy. This sends the basics to Google Contacts: names, phone numbers, emails, birthdays and work. It only adds — it never deletes a contact, number or email.</p>
+  <div class="row wrap"><button class="btn ghost" id="cplan"${ui.cbusy?' disabled':''}>${ui.cbusy==='plan'?'Checking…':'Check what would change'}</button>${ui.cplan&&ui.cplan.length?`<button class="btn" id="cpush"${ui.cbusy?' disabled':''}>${ui.cbusy==='push'?'Updating…':'Update '+ui.cplan.length+' contact'+(ui.cplan.length>1?'s':'')}</button>`:''}</div>
+  ${ui.cplan?(ui.cplan.length?`<p class="small" style="margin:10px 0 4px">${ui.cplan.filter(x=>x.kind==='create').length} new, ${ui.cplan.filter(x=>x.kind==='update').length} to update:</p><div class="md" style="padding:0;max-height:260px;overflow:auto"><ul>${ui.cplan.slice(0,200).map(x=>`<li><b>${esc(x.name)}</b> — ${esc(x.what.join('; '))}</li>`).join('')}</ul></div>`:'<p class="small">Google Contacts already matches your vault.</p>'):''}
+  <label class="small row" style="margin-top:10px"><input type="checkbox" id="cauto"${S.autoContacts?' checked':''}> Keep Google Contacts updated automatically (once a day, when the app opens)</label>
+  ${S.contactsPushed?`<p class="status" style="margin:6px 0 0">Last updated ${esc(new Date(S.contactsPushed).toLocaleString())}</p>`:''}</div>
   <h2>Import without Google</h2><div class="card" style="padding:14px"><p class="small mute" style="margin-top:0">Pick the People notes (.md files) to load them on this phone only.</p><input type="file" id="imp" multiple accept=".md,text/markdown"></div>
   <h2>This phone</h2><div class="card" style="padding:14px"><p class="small mute" style="margin-top:0">${people.length} people stored offline.</p><button class="btn ghost" id="clear">Clear local copy</button></div>`}
 
@@ -348,10 +448,13 @@ addEventListener('hashchange',()=>{if(ui.sheet)closeSheet();render();scrollTo(0,
 document.addEventListener('input',e=>{const t=e.target;if(t.id==='sq'){ui.sq=t.value;return renderSheet(true)}if(t.id==='ap'){ui.ap=t.value;return renderSheet(true)}if(t.id==='atext'){ui.atext=t.value;return}if(t.id==='vtext'){ui.vtext=t.value;return}if(t.id==='wq'){ui.wq=t.value;return render(true)}if(t.id==='q'){ui.q=t.value;render(true)}if(t.id==='city'){ui.city=t.value;render(true)}});
 document.addEventListener('change',e=>{const t=e.target;const[r,arg]=route();
   if(t.dataset.k&&r==='person'){const p=byName(arg);let v=t.value.trim();if(t.dataset.k==='keep_in_touch_months'&&v)v=+v;if(String(F(p,t.dataset.k))!==String(v))change(p,{t:'set',k:t.dataset.k,v})}
+  if(t.id==='cauto'){S.autoContacts=t.checked;LS.set('people.settings',S)}
   if(t.id==='cid'){S.clientId=t.value.trim();LS.set('people.settings',S)}if(t.id==='imp')importFiles(t.files)});
 let rec=null;
 document.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;const[r,arg]=route();const p=r==='person'?byName(arg):null;
   if(t.dataset.wgo!=null){ui.wq='';location.hash='#web/'+encodeURIComponent(t.dataset.wgo);return}
+  if(t.id==='cplan'){ui.cbusy='plan';render();getToken(true).then(contactsPlan).then(pl=>{ui.cplan=pl}).catch(e=>toast(e.message)).finally(()=>{ui.cbusy=null;render()});return}
+  if(t.id==='cpush'){ui.cbusy='push';render();contactsPush(ui.cplan).then(n=>{toast(`Google Contacts: ${n} updated`);ui.cplan=null}).catch(e=>toast(e.message)).finally(()=>{ui.cbusy=null;render()});return}
   if(t.id==='shuffle'){ui.rand=null;render();return}
   if(t.id==='vsave'){const text=($('#vtext').value||'').trim();if(!text)return toast('Say or type a note first');if(rec)rec.stop();
     const d=new Date();inbox.push({t:today()+' '+d.toTimeString().slice(0,5),text});saveInbox();ui.vtext='';render();
