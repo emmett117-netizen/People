@@ -39,6 +39,16 @@ nav a.on{color:var(--ink);font-weight:700}nav a span{display:block;font-size:20p
 .status{font-size:13px;color:var(--mute)}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--mute);margin-right:6px}.dot.ok{background:var(--green)}.dot.pend{background:var(--accent)}
 .mic.on{background:var(--warn);color:#fff}
 a.act{display:inline-flex;gap:6px;align-items:center;text-decoration:none;background:var(--chip);color:var(--ink);border-radius:999px;padding:8px 13px;font-size:14px;font-weight:600}
+.cdot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:0}
+.webbox{position:relative;margin-top:6px}#websvg,#egosvg{display:block;touch-action:none;user-select:none;-webkit-user-select:none}
+.we{stroke:#b9b2a2}.we.rel{stroke:#8a7a5c}.we.em{stroke-dasharray:2 2}.wi{stroke:var(--line);stroke-width:.9}
+.wn{cursor:pointer}circle.wn{stroke:var(--card);stroke-width:.8}
+.wl{text-anchor:middle;font-size:10.5px;font-weight:600;fill:var(--ink);paint-order:stroke;stroke:var(--bg);stroke-width:3px;pointer-events:none}
+.wini{text-anchor:middle;font-size:10px;font-weight:700;fill:#fff;pointer-events:none}
+.wlegend{position:absolute;left:6px;bottom:6px;font-size:11px;color:var(--mute);background:var(--card);opacity:.92;border:1px solid var(--line);border-radius:10px;padding:6px 9px;pointer-events:none}
+.wlegend b{display:inline-block;width:18px;border-top:2px solid #8a7a5c;vertical-align:middle;margin-right:5px}.wlegend b.t{border-top:1px solid #b9b2a2}.wlegend b.e{border-top:1px dashed #b9b2a2}
+.pills{display:flex;flex-wrap:wrap;gap:6px}.pill{display:inline-flex;gap:6px;align-items:center;background:var(--chip);border-radius:999px;padding:5px 11px;font-size:14px;color:var(--ink);text-decoration:none}
+.pill .cdot{margin:0}.pill .small{font-size:11px}
 </style>
 </head>
 <body>
@@ -168,7 +178,7 @@ function vPerson(name){const p=byName(name);if(!p)return`<h1>Not found</h1><p><a
   <div class="row" style="gap:14px;margin-bottom:12px">${avatar(p,true)}<div class="grow"><h1 style="margin:0">${esc(p.name)}</h1>
   <div class="mute">${esc([fm.circle,fm.city||cityKey(fm.city_guess||''),[fm.title,fm.company].filter(Boolean).join(', ')].filter(Boolean).join(' · '))}</div>
   ${d!=null&&d>0?`<div class="warn small">Due for a catch-up</div>`:''}${(p.ops||[]).length?`<div class="small" style="color:var(--accent)">${p.ops.length} change(s) not synced yet</div>`:''}</div></div>
-  <div class="row wrap">${ph.slice(0,2).map(n=>`<a class="act" href="tel:${esc(n)}">Call</a><a class="act" href="sms:${esc(n)}">Text</a><a class="act" href="https://wa.me/${esc(String(n).replace(/\D/g,''))}">WhatsApp</a>`).join('')}${em.slice(0,1).map(e=>`<a class="act" href="mailto:${esc(e)}">Email</a>`).join('')}</div>
+  <div class="row wrap">${ph.slice(0,2).map(n=>`<a class="act" href="tel:${esc(n)}">Call</a><a class="act" href="sms:${esc(n)}">Text</a><a class="act" href="https://wa.me/${esc(String(n).replace(/\D/g,''))}">WhatsApp</a>`).join('')}${em.slice(0,1).map(e=>`<a class="act" href="mailto:${esc(e)}">Email</a>`).join('')}<a class="act" href="#web/${encodeURIComponent(p.name)}">Their web</a></div>
   <h2>Log an update</h2><div class="card" style="padding:12px"><textarea class="field" id="log" placeholder="Just had coffee with ${esc(p.name.split(' ')[0])}…"></textarea>
   <div class="row wrap" style="margin-top:8px"><button class="btn small ghost mic" id="mic">Speak</button><label class="small row"><input type="checkbox" id="seen" checked> saw them today</label><span class="grow"></span><button class="btn small ghost" id="ask">Send to Claude</button><button class="btn small" id="savelog">Save</button></div></div>
   <h2>Reminder</h2><div class="card" style="padding:12px"><input class="field" id="rtext" placeholder="Congratulate ${esc(p.name.split(' ')[0])} on…">
@@ -190,20 +200,98 @@ function vSettings(){return`<h1>Settings</h1>
   <h2>Import without Google</h2><div class="card" style="padding:14px"><p class="small mute" style="margin-top:0">Pick the People notes (.md files) to load them on this phone only.</p><input type="file" id="imp" multiple accept=".md,text/markdown"></div>
   <h2>This phone</h2><div class="card" style="padding:14px"><p class="small mute" style="margin-top:0">${people.length} people stored offline.</p><button class="btn ghost" id="clear">Clear local copy</button></div>`}
 
+/* ---------- web of connections ---------- */
+const WEB_SKIP_GROUP=['Becca Ross'];   // in nearly every group thread: keep only her family links
+const WCOL={"Salt Lake City":"#2f6b55","Cal Poly":"#b9741a","Coworkers":"#5b6fa8","Travel":"#9a5b8e","Madison":"#a5482f","Martha's Vineyard":"#3b8a9a","Family":"#c0563b","Austin":"#7a8f3a","Hawaii":"#d08a2a","Denver":"#6d6d6d"};
+const wcol=c=>WCOL[c]||(c?color(c):'#9a9f98');
+const KIND={rel:'family / partner',text:'group texts',email:'same emails',note:'mentioned in notes'};
+function webGraph(){const key=people.map(p=>p.name+(p.ops||[]).length+':'+p.md.length).join('|');if(ui._wg&&ui._wg.key===key)return ui._wg;
+  const E=new Map(),skip=new Set(WEB_SKIP_GROUP.map(s=>s.toLowerCase()));
+  const add=(a,b,kind,w)=>{const A=byName(a),B=byName(b);if(!A||!B||A===B)return;
+    if((kind==='text'||kind==='email')&&(skip.has(A.name.toLowerCase())||skip.has(B.name.toLowerCase())))return;
+    const k=[A.name,B.name].sort().join('\u0000');const e=E.get(k)||{a:[A.name,B.name].sort()[0],b:[A.name,B.name].sort()[1],w:0,k:new Set()};e.w+=w;e.k.add(kind);E.set(k,e)};
+  for(const p of people){const v=view(p);const pl=String(v.fm.partner||'').match(/\[\[([^\]|]+)/);if(pl)add(p.name,pl[1],'rel',10);
+    for(const raw of v.body.split('\n')){const ls=[...raw.matchAll(/\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g)].map(m=>m[1]);if(!ls.length)continue;
+      const kind=/group texts/i.test(raw)?'text':/same emails/i.test(raw)?'email':/^\s*-\s*(partner|spouse|wife|husband|child|son|daughter|parent|mother|father|mom|dad|brother|sister|sibling|relative|family|friend)\b/i.test(raw)?'rel':'note';
+      ls.forEach((n,i)=>add(p.name,n,kind,kind==='rel'?10:kind==='text'?Math.max(1,6-i):kind==='email'?2:3))}}
+  const edges=[...E.values()].map(e=>({...e,k:[...e.k]}));const deg={};edges.forEach(e=>{deg[e.a]=(deg[e.a]||0)+1;deg[e.b]=(deg[e.b]||0)+1});
+  const nodes=Object.keys(deg).sort().map(id=>({id,c:F(byName(id),'circle'),d:deg[id]}));
+  return ui._wg={key,nodes,edges,deg,pos:null}}
+function webLayout(g,W,H){if(g.pos&&g.pos.W===W&&g.pos.H===H)return g.pos;
+  const N=g.nodes,idx={};N.forEach((n,i)=>idx[n.id]=i);const cs=[...new Set(N.map(n=>n.c))];
+  const x=new Float64Array(N.length),y=new Float64Array(N.length),vx=new Float64Array(N.length),vy=new Float64Array(N.length);
+  let seed=7;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+  N.forEach((n,i)=>{const a=cs.indexOf(n.c)/cs.length*6.283;x[i]=Math.cos(a)*200+rnd()*80;y[i]=Math.sin(a)*200+rnd()*80});
+  const L=g.edges.map(e=>[idx[e.a],idx[e.b],e.k.includes('rel')?14:34,Math.min(1,.15+e.w/40)]);const r=N.map(n=>3+Math.sqrt(n.d)*1.9);
+  for(let it=0,alpha=1;it<320;it++,alpha*=.985){
+    for(let i=0;i<N.length;i++)for(let j=i+1;j<N.length;j++){let dx=x[j]-x[i],dy=y[j]-y[i],d2=dx*dx+dy*dy||.01;if(d2>90000)continue;const d=Math.sqrt(d2),f=-38*alpha/d2;
+      vx[i]+=dx*f;vy[i]+=dy*f;vx[j]-=dx*f;vy[j]-=dy*f;const m=r[i]+r[j]+1.5;if(d<m){const o=(m-d)/d*.5;x[i]-=dx*o;y[i]-=dy*o;x[j]+=dx*o;y[j]+=dy*o}}
+    for(const[a,b,dist,s]of L){const dx=x[b]-x[a],dy=y[b]-y[a],d=Math.sqrt(dx*dx+dy*dy)||1,f=(d-dist)/d*s*alpha*.5;vx[a]+=dx*f;vy[a]+=dy*f;vx[b]-=dx*f;vy[b]-=dy*f}
+    for(let i=0;i<N.length;i++){vx[i]-=x[i]*.07*alpha;vy[i]-=y[i]*.05*alpha;x[i]+=vx[i]*.6;y[i]+=vy[i]*.6;vx[i]*=.6;vy[i]*=.6}}
+  const x0=Math.min(...x),x1=Math.max(...x),y0=Math.min(...y),y1=Math.max(...y);const sx=(W-30)/(x1-x0||1),sy=(H-30)/(y1-y0||1);
+  const P={W,H};N.forEach((n,i)=>P[n.id]={x:15+(x[i]-x0)*sx,y:15+(y[i]-y0)*sy,r:r[i]});return g.pos=P}
+function webSize(){return{W:Math.min(innerWidth,640)-32,H:Math.max(320,innerHeight-250)}}
+function webTop(sel){const g=webGraph();const cs=[...new Set(g.nodes.map(n=>n.c).filter(Boolean))].sort((a,b)=>g.nodes.filter(n=>n.c===b).length-g.nodes.filter(n=>n.c===a).length);
+  return`<h1>Connections</h1><input class="field" id="wq" type="search" list="wnames" placeholder="Find a person" value=""><datalist id="wnames">${g.nodes.map(n=>`<option value="${esc(n.id)}">`).join('')}</datalist>
+  ${sel?`<p style="margin:10px 0 0"><a class="mute" href="#web" style="text-decoration:none">‹ Back to everyone</a></p>`:`<div class="chips" style="margin-top:10px">${['',...cs].map(c=>`<button class="chip${(ui.wc||'')===c?' on':''}" data-wc="${esc(c)}">${c?`<i class="cdot" style="background:${wcol(c)}"></i>`:''}${esc(c||'All')}</button>`).join('')}</div>`}`}
+function vWeb(sel){const g=webGraph();if(!g.nodes.length)return`<h1>Connections</h1><p class="mute">No links between people yet. Links come from [[names]] in notes: partners, group texts, shared emails and anything you mention in a log.</p>`;
+  if(sel&&byName(sel))return vEgo(byName(sel).name,g);const{W,H}=webSize();const P=webLayout(g,W,H);const wc=ui.wc||'';
+  const on=n=>!wc||byName(n)&&F(byName(n),'circle')===wc;
+  let s=g.edges.map(e=>{const a=P[e.a],b=P[e.b],dim=!(on(e.a)&&on(e.b));return`<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" class="we ${e.k.includes('rel')?'rel':''}${e.k.length===1&&e.k[0]==='email'?' em':''}" style="opacity:${dim?.06:.5};stroke-width:${e.k.includes('rel')?1.6:Math.min(1.4,.5+e.w/40).toFixed(2)}"/>`}).join('');
+  s+=g.nodes.map(n=>`<circle data-n="${esc(n.id)}" cx="${P[n.id].x.toFixed(1)}" cy="${P[n.id].y.toFixed(1)}" r="${P[n.id].r.toFixed(1)}" fill="${wcol(n.c)}" class="wn" style="opacity:${on(n.id)?1:.12}"/>`).join('');
+  const boxes=[],lab=[];[...g.nodes].filter(n=>on(n.id)).sort((a,b)=>b.d-a.d).forEach(n=>{if(lab.length>=(wc?20:12))return;const p=P[n.id],w=n.id.length*5.6,b=[p.x-w/2,p.x+w/2,p.y-p.r-15,p.y-p.r-2];
+    if(boxes.some(o=>!(b[1]<o[0]||b[0]>o[1]||b[3]<o[2]||b[2]>o[3])))return;boxes.push(b);lab.push(n)});
+  s+=lab.map(n=>`<text x="${P[n.id].x.toFixed(1)}" y="${(P[n.id].y-P[n.id].r-4).toFixed(1)}" class="wl">${esc(n.id)}</text>`).join('');
+  const t=ui.wt||{x:0,y:0,k:1};
+  return webTop()+`<div class="webbox"><svg id="websvg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><g id="wg" transform="translate(${t.x} ${t.y}) scale(${t.k})">${s}</g></svg>
+  <div class="wlegend"><div><b></b>family / partner</div><div><b class="t"></b>group texts</div><div><b class="e"></b>same emails</div><div>Bigger dot = more connections · pinch to zoom · tap a dot</div></div></div>
+  <p class="status">${g.nodes.length} people with connections · ${g.edges.length} links</p>`}
+function vEgo(sel,g){const me=byName(sel);const nb=[];g.edges.forEach(e=>{if(e.a===sel)nb.push([e.b,e]);else if(e.b===sel)nb.push([e.a,e])});
+  nb.sort((a,b)=>b[1].w-a[1].w);const ring=nb.slice(0,24).sort((a,b)=>String(F(byName(a[0]),'circle')||'~').localeCompare(String(F(byName(b[0]),'circle')||'~'))||b[1].w-a[1].w);
+  const W=Math.min(innerWidth,640)-32,H=Math.min(W+30,460),cx=W/2,cy=H/2,R=Math.min(W*.4,H*.38);const P={};
+  ring.forEach(([n],i)=>{const a=-Math.PI/2+i*2*Math.PI/Math.max(ring.length,1);P[n]={x:cx+R*Math.cos(a)*1.06,y:cy+R*Math.sin(a)}});
+  const firsts={};ring.forEach(([n])=>{const f=n.split(' ')[0];firsts[f]=(firsts[f]||0)+1});const short=n=>{const f=n.split(' ')[0];return firsts[f]>1?n:f};
+  let s=g.edges.filter(e=>P[e.a]&&P[e.b]).map(e=>`<line x1="${P[e.a].x.toFixed(1)}" y1="${P[e.a].y.toFixed(1)}" x2="${P[e.b].x.toFixed(1)}" y2="${P[e.b].y.toFixed(1)}" class="wi"/>`).join('');
+  s+=ring.map(([n,e])=>`<line x1="${cx}" y1="${cy}" x2="${P[n].x.toFixed(1)}" y2="${P[n].y.toFixed(1)}" stroke="${e.k.includes('rel')?'#8a7a5c':wcol(F(byName(n),'circle'))}" stroke-width="${e.k.includes('rel')?3:Math.min(4,1+e.w/6).toFixed(1)}" opacity=".75"/>`).join('');
+  s+=ring.map(([n])=>`<g data-n="${esc(n)}" class="wn"><circle cx="${P[n].x.toFixed(1)}" cy="${P[n].y.toFixed(1)}" r="14" fill="${wcol(F(byName(n),'circle'))}" stroke="var(--card)" stroke-width="2"/><text x="${P[n].x.toFixed(1)}" y="${(P[n].y+4).toFixed(1)}" class="wini">${esc(initials(n))}</text><text x="${P[n].x.toFixed(1)}" y="${(P[n].y+28).toFixed(1)}" class="wl" style="font-size:11px">${esc(short(n))}</text></g>`).join('');
+  s+=`<g data-p="${esc(sel)}" class="wn"><circle cx="${cx}" cy="${cy}" r="30" fill="${wcol(F(me,'circle'))}" stroke="var(--ink)" stroke-width="2.5"/><text x="${cx}" y="${cy+6}" class="wini" style="font-size:17px">${esc(initials(sel))}</text></g>`;
+  const pill=([n,e])=>`<a class="pill" href="#web/${encodeURIComponent(n)}"><i class="cdot" style="background:${wcol(F(byName(n),'circle'))}"></i>${esc(n)}<span class="mute small">${esc(e.k.map(k=>KIND[k]).join(', '))}</span></a>`;
+  return webTop(sel)+`<div class="webbox"><svg id="egosvg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${s}</svg></div>
+  <div class="card" style="padding:12px 14px;margin-top:6px"><div class="row">${avatar(me)}<div class="grow"><div style="font-weight:700">${esc(sel)}</div><div class="sub mute small">${esc([F(me,'circle'),nb.length+' connection'+(nb.length===1?'':'s')].filter(Boolean).join(' · '))}${nb.length>ring.length?' · ring shows the closest '+ring.length:''}</div></div><a class="btn small" href="#p/${encodeURIComponent(sel)}" style="text-decoration:none">Open</a></div>
+  <p class="small mute" style="margin:8px 0 6px">Tap anyone to make them the center. Thicker line = more texts together; lines around the ring = they know each other too.</p>
+  <div class="pills">${nb.map(pill).join('')}</div></div>`}
+function webWire(){const svg=$('#websvg');if(!svg)return;const g=$('#wg');const t=ui.wt=ui.wt||{x:0,y:0,k:1};const pts=new Map();let moved=0,start=null,pinch=null;
+  const box=()=>svg.getBoundingClientRect();const apply=()=>g.setAttribute('transform',`translate(${t.x} ${t.y}) scale(${t.k})`);
+  const loc=e=>{const b=box(),s=svg.viewBox.baseVal.width/b.width;return{x:(e.clientX-b.left)*s,y:(e.clientY-b.top)*s}};
+  const zoom=(c,f)=>{const k=Math.min(8,Math.max(.6,t.k*f));t.x=c.x-(c.x-t.x)*k/t.k;t.y=c.y-(c.y-t.y)*k/t.k;t.k=k;apply()};
+  svg.addEventListener('pointerdown',e=>{svg.setPointerCapture(e.pointerId);pts.set(e.pointerId,loc(e));moved=0;start={...loc(e),tx:t.x,ty:t.y};
+    if(pts.size===2){const[a,b]=[...pts.values()];pinch={d:Math.hypot(a.x-b.x,a.y-b.y),k:t.k}}});
+  svg.addEventListener('pointermove',e=>{if(!pts.has(e.pointerId))return;pts.set(e.pointerId,loc(e));
+    if(pts.size===2&&pinch){const[a,b]=[...pts.values()];const c={x:(a.x+b.x)/2,y:(a.y+b.y)/2};zoom(c,pinch.k*Math.hypot(a.x-b.x,a.y-b.y)/pinch.d/t.k);moved=99;return}
+    const p=loc(e);moved=Math.max(moved,Math.hypot(p.x-start.x,p.y-start.y));if(moved>4){t.x=start.tx+p.x-start.x;t.y=start.ty+p.y-start.y;apply()}});
+  const up=e=>{pts.delete(e.pointerId);if(pts.size<2)pinch=null;if(!pts.size&&moved<=4){const n=e.target.closest&&e.target.closest('[data-n]');if(n)location.hash='#web/'+encodeURIComponent(n.dataset.n)}};
+  svg.addEventListener('pointerup',up);svg.addEventListener('pointercancel',e=>{pts.delete(e.pointerId);pinch=null});
+  svg.addEventListener('wheel',e=>{e.preventDefault();zoom(loc(e),e.deltaY<0?1.15:1/1.15)},{passive:false})}
+document.addEventListener('click',e=>{const n=e.target.closest&&e.target.closest('#egosvg [data-n]');if(n)location.hash='#web/'+encodeURIComponent(n.dataset.n);
+  const p=e.target.closest&&e.target.closest('#egosvg [data-p]');if(p)location.hash='#p/'+encodeURIComponent(p.dataset.p)});
+
 /* ---------- router + events ---------- */
-function route(){const h=decodeURIComponent(location.hash.slice(1));if(h.startsWith('p/'))return['person',h.slice(2)];return[h||'home','']}
+function route(){const h=decodeURIComponent(location.hash.slice(1));if(h.startsWith('p/'))return['person',h.slice(2)];if(h.startsWith('web/'))return['web',h.slice(4)];return[h||'home','']}
 function render(keepFocus){const[r,arg]=route();const v=$('#view');const act=document.activeElement,id=act&&act.id,pos=act&&act.selectionStart;
-  v.innerHTML=r==='person'?vPerson(arg):r==='people'?vPeople():r==='city'?vCity():r==='settings'?vSettings():vHome();
-  $('#nav').innerHTML=[['home','⌂','Home'],['people','☰','Everyone'],['city','◎','City'],['settings','⚙','Settings']].map(t=>`<a href="#${t[0]}" class="${r===t[0]?'on':''}"><span>${t[1]}</span>${t[2]}</a>`).join('');
+  v.innerHTML=r==='person'?vPerson(arg):r==='web'?vWeb(arg):r==='people'?vPeople():r==='city'?vCity():r==='settings'?vSettings():vHome();
+  $('#nav').innerHTML=[['home','⌂','Home'],['people','☰','Everyone'],['web','✳︎','Web'],['city','◎','City'],['settings','⚙','Settings']].map(t=>`<a href="#${t[0]}" class="${r===t[0]?'on':''}"><span>${t[1]}</span>${t[2]}</a>`).join('');
+  if(r==='web')webWire();
   if(keepFocus&&id&&$('#'+id)){const e=$('#'+id);e.focus();try{e.setSelectionRange(pos,pos)}catch(x){}}}
 addEventListener('hashchange',()=>{render();scrollTo(0,0)});
 document.addEventListener('input',e=>{const t=e.target;if(t.id==='q'){ui.q=t.value;render(true)}if(t.id==='city'){ui.city=t.value;render(true)}});
 document.addEventListener('change',e=>{const t=e.target;const[r,arg]=route();
   if(t.dataset.k&&r==='person'){const p=byName(arg);let v=t.value.trim();if(t.dataset.k==='keep_in_touch_months'&&v)v=+v;if(String(F(p,t.dataset.k))!==String(v))change(p,{t:'set',k:t.dataset.k,v})}
+  if(t.id==='wq'){const p=byName(t.value.trim());if(p)location.hash='#web/'+encodeURIComponent(p.name)}
   if(t.id==='cid'){S.clientId=t.value.trim();LS.set('people.settings',S)}if(t.id==='imp')importFiles(t.files)});
 let rec=null;
 document.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;const[r,arg]=route();const p=r==='person'?byName(arg):null;
   if(t.dataset.circle!=null){ui.circle=t.dataset.circle;render()}
+  if(t.dataset.wc!=null){ui.wc=t.dataset.wc;render()}
   if(t.dataset.city!=null){ui.city=t.dataset.city;render()}
   if(t.id==='sync'){S.clientId=$('#cid').value.trim();LS.set('people.settings',S);sync(true)}
   if(t.id==='clear'&&confirm('Remove the offline copy from this phone? Your Drive notes are not touched.')){people=[];save();render()}
