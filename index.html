@@ -12,7 +12,7 @@
 @media (prefers-color-scheme:dark){:root{--bg:#141815;--card:#1c221e;--ink:#ece8dc;--mute:#98a097;--line:#2c342e;--accent:#e8a23d;--green:#7fb39a;--chip:#262d28;--warn:#e08a6f}}
 *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
 h1,h2,.serif{font-family:ui-serif,Georgia,"Times New Roman",serif;font-weight:600;letter-spacing:-.01em}
-main{max-width:640px;margin:0 auto;padding:18px 16px 96px}
+main{max-width:640px;margin:0 auto;padding:18px 16px 150px}
 h1{font-size:30px;margin:6px 0 14px}h2{font-size:14px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);font-family:inherit;margin:22px 0 8px}
 input,select,textarea,button{font:inherit;color:inherit}
 .field{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--card);outline:none}
@@ -35,7 +35,7 @@ nav a.on{color:var(--ink);font-weight:700}nav a span{display:block;font-size:20p
 .kv{display:grid;grid-template-columns:110px 1fr;gap:8px 10px;padding:14px;align-items:center}.kv label{color:var(--mute);font-size:13px}
 .md{padding:4px 14px 12px}.md h3{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin:14px 0 4px}
 .md ul{margin:0;padding-left:18px}.md li{margin:3px 0;overflow-wrap:anywhere}.md a{color:var(--green);font-weight:600;text-decoration:none}
-.toast{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:14px;max-width:90vw;z-index:9}
+.toast{position:fixed;left:50%;bottom:calc(128px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:14px;max-width:90vw;z-index:9}
 .status{font-size:13px;color:var(--mute)}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--mute);margin-right:6px}.dot.ok{background:var(--green)}.dot.pend{background:var(--accent)}
 .mic.on{background:var(--warn);color:#fff}
 a.act{display:inline-flex;gap:6px;align-items:center;text-decoration:none;background:var(--chip);color:var(--ink);border-radius:999px;padding:8px 13px;font-size:14px;font-weight:600}
@@ -49,11 +49,19 @@ a.act{display:inline-flex;gap:6px;align-items:center;text-decoration:none;backgr
 .wlegend b{display:inline-block;width:18px;border-top:2px solid #8a7a5c;vertical-align:middle;margin-right:5px}.wlegend b.t{border-top:1px solid #b9b2a2}.wlegend b.e{border-top:1px dashed #b9b2a2}
 .pills{display:flex;flex-wrap:wrap;gap:6px}.pill{display:inline-flex;gap:6px;align-items:center;background:var(--chip);border-radius:999px;padding:5px 11px;font-size:14px;color:var(--ink);text-decoration:none}
 .pill .cdot{margin:0}.pill .small{font-size:11px}
+.qbar{position:fixed;left:0;right:0;bottom:calc(57px + env(safe-area-inset-bottom));display:flex;justify-content:center;gap:10px;padding:8px 16px;pointer-events:none;z-index:5}
+.qbar button{pointer-events:auto;flex:1;max-width:220px;border:0;border-radius:999px;padding:12px 10px;font-weight:700;font-size:15px;box-shadow:0 4px 14px rgba(0,0,0,.18);cursor:pointer}
+.qbar .q1{background:var(--card);color:var(--ink);border:1px solid var(--line)}.qbar .q2{background:var(--ink);color:var(--bg)}
+.sheet{position:fixed;inset:0;background:var(--bg);z-index:10;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.sheet .in{max-width:640px;margin:0 auto;padding:14px 16px 40px}.sheet .x{border:0;background:var(--chip);border-radius:999px;width:38px;height:38px;font-size:18px;cursor:pointer}
+.pick{display:flex;gap:10px;align-items:center;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:none;padding:10px 14px;cursor:pointer}.pick:last-child{border-bottom:0}
 </style>
 </head>
 <body>
 <main id="view"></main>
+<div class="qbar" id="qbar"><button class="q1" id="qsearch">🔍 Search</button><button class="q2" id="qadd">＋ Update</button></div>
 <nav id="nav"></nav>
+<div class="sheet" id="sheet" hidden></div>
 <script>
 'use strict';
 /* ---------- storage ---------- */
@@ -63,6 +71,7 @@ let S=LS.get('people.settings',{clientId:'',folderId:''});if(!S.clientId)S.clien
 let people=LS.get('people.cache',[]);   // {id,file,name,md,mtime,ops:[]}
 let token=null,tokenExp=0,syncing=false,lastSync=LS.get('people.lastSync','');
 const save=()=>LS.set('people.cache',people);
+let inbox=LS.get('people.inbox',[]);const saveInbox=()=>LS.set('people.inbox',inbox);   // voice notes waiting to go to the vault
 const today=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function toast(t){document.querySelectorAll('.toast').forEach(e=>e.remove());const d=document.createElement('div');d.className='toast';d.textContent=t;document.body.appendChild(d);setTimeout(()=>d.remove(),3200)}
@@ -116,8 +125,18 @@ async function createOne(p){const fid=await folderId();const meta={name:p.file,p
   const body=`--${b}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: text/markdown\r\n\r\n${applyOps(p.md,p.ops)}\r\n--${b}--`;
   const j=await(await api('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+b},body})).json();
   p.id=j.id;p.md=applyOps(p.md,p.ops);p.ops=[];p.mtime=j.modifiedTime}
+const INBOX='Voice inbox.md';
+async function pushInbox(){if(!inbox.length)return;const send=inbox.slice();
+  const lines=send.map(n=>`- [ ] ${n.t} — ${n.text.replace(/\s*\n\s*/g,' ')}`).join('\n')+'\n';
+  const q=encodeURIComponent(`name='${INBOX}' and '${VAULT_ID}' in parents and trashed=false`);const f=(await(await api(`${DR}?q=${q}&fields=files(id)`)).json()).files[0];
+  if(f){const cur=await(await api(`${DR}/${f.id}?alt=media`)).text();await api(`https://www.googleapis.com/upload/drive/v3/files/${f.id}?uploadType=media`,{method:'PATCH',headers:{'Content-Type':'text/markdown'},body:cur.replace(/\n*$/,'\n')+lines})}
+  else{const b='x'+Date.now();const meta={name:INBOX,parents:[VAULT_ID],mimeType:'text/markdown'};
+    const head='# Voice inbox\n\nVoice notes from the People app. Ask Claude to "process my voice inbox" and it will update the right people and tick these off.\n\n';
+    await api('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+b},body:`--${b}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: text/markdown\r\n\r\n${head+lines}\r\n--${b}--`})}
+  inbox=inbox.slice(send.length);saveInbox()}
 async function sync(interactive){if(syncing)return;syncing=true;render();try{await getToken(interactive);const fid=await folderId();
     for(const p of people){if(p.id&&(p.ops||[]).length)await pushOne(p);else if(!p.id&&p.local)await createOne(p)}
+    await pushInbox();
     let files=[],pt='';do{const j=await(await api(`${DR}?q=${encodeURIComponent(`'${fid}' in parents and trashed=false`)}&fields=nextPageToken,files(id,name,modifiedTime)&pageSize=1000${pt?'&pageToken='+pt:''}`)).json();files=files.concat(j.files);pt=j.nextPageToken||''}while(pt);
     files=files.filter(f=>/\.md$/i.test(f.name));const have=new Map(people.filter(p=>p.id).map(p=>[p.id,p]));const need=files.filter(f=>!have.get(f.id)||have.get(f.id).mtime!==f.modifiedTime);
     let i=0;const work=async()=>{while(i<need.length){const f=need[i++];const md=await(await api(`${DR}/${f.id}?alt=media`)).text();let p=have.get(f.id);
@@ -143,7 +162,8 @@ const $=s=>document.querySelector(s);let ui={q:'',circle:'',city:''};
 function avatar(p,big){return`<div class="av${big?' big':''}" style="background:${color(p.name)}">${esc(initials(p.name))}</div>`}
 function item(p,sub){return`<a class="item" href="#p/${encodeURIComponent(p.name)}">${avatar(p)}<div class="grow"><div>${esc(p.name)}</div><div class="sub">${esc(sub??[F(p,'circle'),F(p,'city')||String(F(p,'city_guess')).replace(/\s*\(.*\)$/,'')].filter(Boolean).join(' · '))}</div></div></a>`}
 function list(ps,sub,empty){return ps.length?`<div class="card">${ps.map(p=>item(p,sub&&sub(p))).join('')}</div>`:`<p class="mute">${empty||'Nobody here yet.'}</p>`}
-function search(q){q=q.toLowerCase();return people.filter(p=>{const v=view(p);return p.name.toLowerCase().includes(q)||JSON.stringify(v.fm).toLowerCase().includes(q)||v.body.toLowerCase().includes(q)})}
+function search(q){q=q.toLowerCase().trim();const rank=p=>{const n=p.name.toLowerCase();if(n.startsWith(q))return 0;if(n.includes(q))return 1;const v=view(p);if(JSON.stringify(v.fm).toLowerCase().includes(q))return 2;if(v.body.toLowerCase().includes(q))return 3;return 9};
+  return people.map(p=>[rank(p),p]).filter(x=>x[0]<9).sort((a,b)=>a[0]-b[0]||a[1].name.localeCompare(b[1].name)).map(x=>x[1])}
 function vHome(){const pend=people.reduce((a,p)=>a+(p.ops||[]).length,0);
   let h=`<h1>People</h1><input class="field" id="q" type="search" placeholder="Search ${people.length} people, places, notes" value="${esc(ui.q)}">`;
   if(!people.length)return h+`<h2>Get started</h2><div class="card" style="padding:14px"><p>No people loaded yet. Connect Google Drive in Settings to read your Obsidian vault, or import the notes folder.</p><a class="btn" href="#settings" style="text-decoration:none;display:inline-block">Open Settings</a></div>`;
@@ -154,7 +174,13 @@ function vHome(){const pend=people.reduce((a,p)=>a+(p.ops||[]).length,0);
   h+=`<p class="status"><span class="dot ${pend?'pend':(lastSync?'ok':'')}"></span>${pend?pend+' change'+(pend>1?'s':'')+' waiting to sync':(lastSync?'Synced '+esc(lastSync):'Not synced with Drive yet')}</p>`;
   h+=`<h2>Time to reach out</h2>`+list(dues.map(x=>x[1]),p=>{const l=lastTouch(p);return(l?'Last contact '+l:'No contact logged')+' · every '+F(p,'keep_in_touch_months')+' mo'},'Set "keep in touch" on a person and they will show up here when they are due.');
   h+=`<h2>Birthdays coming up</h2>`+list(soon.map(x=>x[1]),p=>nextBirthday(p).toLocaleDateString(undefined,{month:'long',day:'numeric'}),'No birthdays in the next 45 days.');
-  if(recent.length)h+=`<h2>Recently seen</h2>`+list(recent,p=>'Seen '+F(p,'last_seen'));return h}
+  if(recent.length)h+=`<h2>Recently seen</h2>`+list(recent,p=>'Seen '+F(p,'last_seen'));
+  if(!ui.rand||ui.rand.n!==people.length){const pool=people.slice();for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]]}ui.rand={n:people.length,names:pool.slice(0,8).map(p=>p.name)}}
+  h+=`<div class="row" style="margin-top:22px"><h2 class="grow" style="margin:0">Say hi to someone</h2><button class="btn small ghost" id="shuffle">Shuffle</button></div><div style="margin-top:8px">`+list(ui.rand.names.map(byName).filter(Boolean),p=>{const l=lastTouch(p);return[F(p,'circle'),l?'last contact '+l:'no contact logged'].filter(Boolean).join(' · ')})+`</div>`;
+  h+=`<h2>Voice notes</h2><div class="card" style="padding:12px"><p class="small mute" style="margin:0 0 8px">Talk about anyone, as many people as you like. Notes go to <b>Voice inbox</b> in your vault, and Claude sorts them into the right people when you say “process my voice inbox”.</p>
+  <textarea class="field" id="vtext" placeholder="Ran into Garrett and Marissa at the climbing gym, they're moving to Boulder in March…">${esc(ui.vtext||'')}</textarea>
+  <div class="row wrap" style="margin-top:8px"><button class="btn small ghost mic" id="vmic">Speak</button><span class="grow status">${inbox.length?inbox.length+' note'+(inbox.length>1?'s':'')+' waiting to upload':''}</span><button class="btn small" id="vsave">Save note</button></div></div>`;
+  return h}
 function vPeople(){const cs=[...new Set(people.map(p=>F(p,'circle')).filter(Boolean))].sort();
   const ps=people.filter(p=>!ui.circle||(ui.circle==='(none)'?!F(p,'circle'):F(p,'circle')===ui.circle));
   return`<h1>Everyone</h1><div class="chips">${['',...cs,'(none)'].map(c=>`<button class="chip${ui.circle===c?' on':''}" data-circle="${esc(c)}">${esc(c||'All')}</button>`).join('')}</div>
@@ -283,6 +309,26 @@ function webWire(){const svg=$('#websvg');if(!svg)return;const g=$('#wg');const 
 document.addEventListener('click',e=>{const n=e.target.closest&&e.target.closest('#egosvg [data-n]');if(n)location.hash='#web/'+encodeURIComponent(n.dataset.n);
   const p=e.target.closest&&e.target.closest('#egosvg [data-p]');if(p)location.hash='#p/'+encodeURIComponent(p.dataset.p)});
 
+/* ---------- quick search / quick update (bottom buttons) ---------- */
+function openSheet(kind){const[r,arg]=route();ui.sheet=kind;ui.sq='';ui.ap='';ui.atext=ui.atext||'';ui.apick=kind==='add'&&r==='person'&&byName(arg)?byName(arg).name:'';renderSheet();
+  setTimeout(()=>{const e=$(kind==='search'?'#sq':(ui.apick?'#atext':'#ap'));if(e)e.focus()},50)}
+function closeSheet(){if(rec)rec.stop();ui.sheet=null;renderSheet()}
+function renderSheet(keepFocus){const s=$('#sheet');if(!ui.sheet){s.hidden=true;s.innerHTML='';document.body.style.overflow='';return}
+  const act=document.activeElement,id=act&&act.id,pos=act&&act.selectionStart;s.hidden=false;document.body.style.overflow='hidden';
+  const head=t=>`<div class="row" style="margin-bottom:10px"><h1 class="grow" style="margin:0">${t}</h1><button class="x" id="sclose" aria-label="Close">✕</button></div>`;
+  if(ui.sheet==='search'){const q=ui.sq.trim();const res=q?search(q).slice(0,60):[];
+    s.innerHTML=`<div class="in">${head('Search')}<input class="field" id="sq" type="search" placeholder="Name, place, company, anything in their notes" value="${esc(ui.sq)}" autocomplete="off">
+    <div style="margin-top:12px">${q?(res.length?`<div class="card">${res.map(p=>item(p)).join('')}</div>`:'<p class="mute">No matches.</p>'):`<p class="mute">Searches all ${people.length} people: names, cities, companies, and everything in their notes.</p>`}</div></div>`}
+  else{const p=ui.apick&&byName(ui.apick);const q=ui.ap.trim().toLowerCase();
+    const opts=q?people.filter(x=>x.name.toLowerCase().includes(q)).slice(0,8):[];
+    s.innerHTML=`<div class="in">${head('Add an update')}
+    ${p?`<div class="card"><div class="item" style="cursor:default">${avatar(p)}<div class="grow"><div style="font-weight:700">${esc(p.name)}</div><div class="sub">${esc([F(p,'circle'),lastTouch(p)?'last contact '+lastTouch(p):''].filter(Boolean).join(' · '))}</div></div><button class="btn small ghost" id="achange">Change</button></div></div>`
+      :`<input class="field" id="ap" type="search" placeholder="Who is this about?" value="${esc(ui.ap)}" autocomplete="off">${opts.length?`<div class="card" style="margin-top:8px">${opts.map(x=>`<button class="pick" data-pick="${esc(x.name)}">${avatar(x)}<div class="grow"><div>${esc(x.name)}</div><div class="sub mute small">${esc(F(x,'circle')||'')}</div></div></button>`).join('')}</div>`:(q?'<p class="mute small">Nobody by that name. Add them from the Everyone tab first.</p>':'')}`}
+    <div class="card" style="padding:12px;margin-top:12px"><textarea class="field" id="atext" placeholder="What happened? e.g. Grabbed beers, he just started a new job…">${esc(ui.atext)}</textarea>
+    <div class="row wrap" style="margin-top:8px"><button class="btn small ghost mic" id="amic">Speak</button><label class="small row"><input type="checkbox" id="aseen" checked> saw them today</label><span class="grow"></span><button class="btn small" id="asave">Save</button></div></div></div>`}
+  if(keepFocus&&id&&$('#'+id)){const e=$('#'+id);e.focus();try{e.setSelectionRange(pos,pos)}catch(x){}}}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&ui.sheet)closeSheet()});
+
 /* ---------- router + events ---------- */
 function route(){const h=decodeURIComponent(location.hash.slice(1));if(h.startsWith('p/'))return['person',h.slice(2)];if(h.startsWith('web/'))return['web',h.slice(4)];return[h||'home','']}
 function render(keepFocus){const[r,arg]=route();const v=$('#view');const act=document.activeElement,id=act&&act.id,pos=act&&act.selectionStart;
@@ -290,14 +336,23 @@ function render(keepFocus){const[r,arg]=route();const v=$('#view');const act=doc
   $('#nav').innerHTML=[['home','⌂','Home'],['people','☰','Everyone'],['web','✳︎','Web'],['city','◎','City'],['settings','⚙','Settings']].map(t=>`<a href="#${t[0]}" class="${r===t[0]?'on':''}"><span>${t[1]}</span>${t[2]}</a>`).join('');
   if(r==='web')webWire();
   if(keepFocus&&id&&$('#'+id)){const e=$('#'+id);e.focus();try{e.setSelectionRange(pos,pos)}catch(x){}}}
-addEventListener('hashchange',()=>{render();scrollTo(0,0)});
-document.addEventListener('input',e=>{const t=e.target;if(t.id==='q'){ui.q=t.value;render(true)}if(t.id==='city'){ui.city=t.value;render(true)}});
+addEventListener('hashchange',()=>{if(ui.sheet)closeSheet();render();scrollTo(0,0)});
+document.addEventListener('input',e=>{const t=e.target;if(t.id==='sq'){ui.sq=t.value;return renderSheet(true)}if(t.id==='ap'){ui.ap=t.value;return renderSheet(true)}if(t.id==='atext'){ui.atext=t.value;return}if(t.id==='vtext'){ui.vtext=t.value;return}if(t.id==='q'){ui.q=t.value;render(true)}if(t.id==='city'){ui.city=t.value;render(true)}});
 document.addEventListener('change',e=>{const t=e.target;const[r,arg]=route();
   if(t.dataset.k&&r==='person'){const p=byName(arg);let v=t.value.trim();if(t.dataset.k==='keep_in_touch_months'&&v)v=+v;if(String(F(p,t.dataset.k))!==String(v))change(p,{t:'set',k:t.dataset.k,v})}
   if(t.id==='wq'){const p=byName(t.value.trim());if(p)location.hash='#web/'+encodeURIComponent(p.name)}
   if(t.id==='cid'){S.clientId=t.value.trim();LS.set('people.settings',S)}if(t.id==='imp')importFiles(t.files)});
 let rec=null;
 document.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;const[r,arg]=route();const p=r==='person'?byName(arg):null;
+  if(t.id==='shuffle'){ui.rand=null;render();return}
+  if(t.id==='vsave'){const text=($('#vtext').value||'').trim();if(!text)return toast('Say or type a note first');if(rec)rec.stop();
+    const d=new Date();inbox.push({t:today()+' '+d.toTimeString().slice(0,5),text});saveInbox();ui.vtext='';render();
+    if(token&&navigator.onLine)pushInbox().then(()=>{toast('Voice note saved to your vault');render()}).catch(()=>toast('Saved on this phone; will upload on next sync'));else toast('Saved on this phone; will upload on next sync');return}
+  if(t.id==='qsearch')return openSheet('search');if(t.id==='qadd')return openSheet('add');if(t.id==='sclose')return closeSheet();
+  if(t.dataset.pick!=null){ui.apick=t.dataset.pick;ui.ap='';renderSheet();setTimeout(()=>$('#atext')&&$('#atext').focus(),30);return}
+  if(t.id==='achange'){ui.apick='';renderSheet();setTimeout(()=>$('#ap')&&$('#ap').focus(),30);return}
+  if(t.id==='asave'){const who=byName(ui.apick);const text=($('#atext').value||'').trim();if(!who)return toast('Pick who this is about');if(!text)return toast('Write or speak an update first');
+    const ops=[{t:'log',date:today(),text}];if($('#aseen').checked)ops.push({t:'set',k:'last_seen',v:today()});ui.atext='';closeSheet();change(who,ops);toast('Logged for '+who.name);return}
   if(t.dataset.circle!=null){ui.circle=t.dataset.circle;render()}
   if(t.dataset.wc!=null){ui.wc=t.dataset.wc;render()}
   if(t.id==='wreset'){ui.wt={x:0,y:0,k:1};render()}
@@ -307,10 +362,10 @@ document.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)r
   if(t.id==='savelog'){const text=$('#log').value.trim();if(!text)return toast('Write or speak an update first');const ops=[{t:'log',date:today(),text}];if($('#seen').checked)ops.push({t:'set',k:'last_seen',v:today()});change(p,ops);toast('Logged')}
   if(t.id==='ask'){const text=`Update my People notes in Obsidian. Person: ${p.name}. ${$('#log').value.trim()}`;if(navigator.share)navigator.share({text}).catch(()=>{});else{navigator.clipboard?.writeText(text);toast('Copied — paste it to Claude')}}
   if(t.id==='rsave'){const text=$('#rtext').value.trim()||('Reach out to '+p.name);remind(text,$('#rdate').value||today());change(p,{t:'log',date:today(),text:`Reminder set for ${$('#rdate').value}: ${text}`})}
-  if(t.id==='mic'){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR)return toast('Voice typing is not available in this browser — use the keyboard mic');
-    if(rec){rec.stop();return}rec=new SR();rec.continuous=true;rec.interimResults=false;rec.lang=navigator.language||'en-US';const box=$('#log');t.classList.add('on');t.textContent='Stop';
-    rec.onresult=ev=>{for(let i=ev.resultIndex;i<ev.results.length;i++)if(ev.results[i].isFinal)box.value=(box.value+' '+ev.results[i][0].transcript).trim()};
-    rec.onend=rec.onerror=()=>{rec=null;const b=$('#mic');if(b){b.classList.remove('on');b.textContent='Speak'}};rec.start()}
+  if(t.id==='mic'||t.id==='amic'||t.id==='vmic'){const bid=t.id;const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR)return toast('Voice typing is not available in this browser — use the keyboard mic');
+    if(rec){rec.stop();return}rec=new SR();rec.continuous=true;rec.interimResults=false;rec.lang=navigator.language||'en-US';const box=$(bid==='mic'?'#log':bid==='vmic'?'#vtext':'#atext');t.classList.add('on');t.textContent='Stop';
+    rec.onresult=ev=>{for(let i=ev.resultIndex;i<ev.results.length;i++)if(ev.results[i].isFinal){box.value=(box.value+' '+ev.results[i][0].transcript).trim();if(bid==='amic')ui.atext=box.value;if(bid==='vmic')ui.vtext=box.value}};
+    rec.onend=rec.onerror=()=>{rec=null;const b=$('#'+bid);if(b){b.classList.remove('on');b.textContent='Speak'}};rec.start()}
   if(t.id==='newp'){const name=(prompt('Name')||'').trim();if(!name)return;if(byName(name))return location.hash='#p/'+encodeURIComponent(name);
     const md=`---\ntype: person\ncircle: ""\ntags: [person]\ncity: ""\ncity_guess: ""\ncompany: ""\ntitle: ""\ninterests: ""\npartner: ""\nbirthday: \nphone: []\nemail: []\nlast_seen: \nlast_contact: \nkeep_in_touch_months: \ntier: \n---\n\n# ${name}\n\n## Context\n- \n\n## Log\n`;
     people.push({id:null,local:true,file:name.replace(/[\\/:*?"<>|#^\[\]]/g,'')+'.md',name,md,ops:[]});people.sort((a,b)=>a.name.localeCompare(b.name));save();location.hash='#p/'+encodeURIComponent(name);if(token)sync(false)}});
