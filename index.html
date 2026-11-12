@@ -49,7 +49,7 @@ a.act{display:inline-flex;gap:6px;align-items:center;text-decoration:none;backgr
 /* ---------- storage ---------- */
 const LS={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 const VAULT_ID='1-4FmyGsKAfs1rh28Vuybo2kIlldudIiN';   // "Emmett" Obsidian vault folder in Google Drive
-let S=LS.get('people.settings',{clientId:'',folderId:''});
+let S=LS.get('people.settings',{clientId:'',folderId:''});if(!S.clientId)S.clientId='370832423650-o9ukg9jdbc42ck0kr7msfjpq73jgd6qr.apps.googleusercontent.com';
 let people=LS.get('people.cache',[]);   // {id,file,name,md,mtime,ops:[]}
 let token=null,tokenExp=0,syncing=false,lastSync=LS.get('people.lastSync','');
 const save=()=>LS.set('people.cache',people);
