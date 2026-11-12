@@ -442,8 +442,10 @@ function seenDate(id){const v=$('#'+id).value;if(v==='none')return'';if(v==='yes
 /* ---------- router + events ---------- */
 function route(){const h=decodeURIComponent(location.hash.slice(1));if(h.startsWith('p/'))return['person',h.slice(2)];if(h.startsWith('web/'))return['web',h.slice(4)];return[h||'home','']}
 function render(keepFocus){const[r,arg]=route();const v=$('#view');const act=document.activeElement,id=act&&act.id,pos=act&&act.selectionStart;
+  const chipX=[...document.querySelectorAll('#view .chips')].map(c=>c.scrollLeft);   // keep sideways scroll of filter rows across redraws
   v.innerHTML=r==='person'?vPerson(arg):r==='web'?vWeb(arg):r==='people'?vPeople():r==='city'?vCity():r==='settings'?vSettings():vHome();
   $('#nav').innerHTML=[['home','⌂','Home'],['people','☰','Everyone'],['web','✳︎','Web'],['city','◎','City'],['settings','⚙','Settings']].map(t=>`<a href="#${t[0]}" class="${r===t[0]?'on':''}"><span>${t[1]}</span>${t[2]}</a>`).join('');
+  document.querySelectorAll('#view .chips').forEach((c,i)=>{if(chipX[i])c.scrollLeft=chipX[i]});
   if(r==='web')webWire();
   if(keepFocus&&id&&$('#'+id)){const e=$('#'+id);e.focus();try{e.setSelectionRange(pos,pos)}catch(x){}}}
 addEventListener('hashchange',()=>{if(ui.sheet)closeSheet();render();scrollTo(0,0)});
