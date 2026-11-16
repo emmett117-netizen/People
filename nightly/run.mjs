@@ -124,7 +124,7 @@ async function main() {
 
   // 4. Google Contacts
   if (CONTACTS_ON || PREVIEW) { try { const plan = await lib.contactsPlan(); const n = plan.length && !PREVIEW ? await lib.contactsPush(plan) : 0;
-      report.contacts = {preview: PREVIEW, created: plan.filter(x => x.kind === 'create').length, updated: plan.filter(x => x.kind === 'update').length, held: plan.filter(x => x.kind === 'check').length, done: n, details: plan.map((x, k) => `${k + 1}. ${x.name} — ${x.kind === 'create' ? 'new contact' : (x.kind === 'check' ? 'HELD: ' : '') + x.what.join('; ')}`)};
+      report.contacts = {preview: PREVIEW, created: plan.filter(x => x.kind === 'create').length, updated: plan.filter(x => x.kind === 'update').length, held: plan.filter(x => x.kind === 'check').length, done: n, details: plan.map((x, k) => `${k + 1}. ${x.name} — ${x.kind === 'create' ? 'new contact' : (x.kind === 'check' ? 'HELD: ' : '') + x.what.join('; ')}${x.kind === 'check' ? ` [vault: ${[...x.vault.phones, ...x.vault.emails].join(', ') || 'none'} | Google “${x.google.name}”: ${[...x.google.phones, ...x.google.emails].join(', ') || 'none'}]` : ''}`)};
     } catch (e) { report.errors.push('contacts: ' + e.message); } }
 
   // 5. report into the vault (private), counts to the log (public)
