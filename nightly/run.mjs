@@ -60,7 +60,8 @@ api = async (url, opt = {}) => {
   for (let attempt = 0; ; attempt++) {
     const r = await fetch(url, {...opt, headers: {Authorization: 'Bearer ' + token, ...(opt.headers || {})}});
     if ((r.status === 429 || r.status >= 500) && attempt < 4) { await new Promise(s => setTimeout(s, 1500 * (attempt + 1))); continue; }
-    if (!r.ok) throw new Error(`Google error ${r.status} on ${method} ${new URL(url).pathname.split('/').slice(0, 4).join('/')}`);
+    if (!r.ok) { let why = ''; try { const j = await r.json(); const e = j.error || {}; why = [e.status, ...(e.details || []).map(d => d.reason).filter(Boolean)].filter(Boolean).join(' ') || String(e.message || '').slice(0, 80); } catch (x) {}
+      throw new Error(`Google error ${r.status}${why ? ' (' + why + ')' : ''} on ${method} ${new URL(url).pathname.split('/').slice(0, 4).join('/')}`); }
     if (method !== 'GET') writes++;
     return r;
   }
