@@ -1,0 +1,37 @@
+name: People nightly
+
+on:
+  schedule:
+    - cron: "41 3 * * *"   # 8:41 pm in Salt Lake City (MST); 9:41 pm during daylight time
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Check only (change nothing)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: people-nightly
+  cancel-in-progress: false
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Tidy the vault, apply Claude updates, update Google Contacts
+        run: node nightly/run.mjs
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          VAULT_FOLDER_ID: ${{ secrets.VAULT_FOLDER_ID }}
+          CONTACTS_SYNC: ${{ vars.CONTACTS_SYNC }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
