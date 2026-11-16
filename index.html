@@ -12,7 +12,7 @@
 @media (prefers-color-scheme:dark){:root{--bg:#141815;--card:#1c221e;--ink:#ece8dc;--mute:#98a097;--line:#2c342e;--accent:#e8a23d;--green:#7fb39a;--chip:#262d28;--warn:#e08a6f}}
 *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
 h1,h2,.serif{font-family:ui-serif,Georgia,"Times New Roman",serif;font-weight:600;letter-spacing:-.01em}
-main{max-width:640px;margin:0 auto;padding:18px 16px 150px}
+main{max-width:640px;margin:0 auto;padding:18px 16px 150px}main.wide{max-width:none}main.wide #wq,main.wide>h1{max-width:640px}
 h1{font-size:30px;margin:6px 0 14px}h2{font-size:14px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);font-family:inherit;margin:22px 0 8px}
 input,select,textarea,button{font:inherit;color:inherit}
 .field{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--card);outline:none}
@@ -380,7 +380,8 @@ function webLayout(g,W,H){if(g.pos&&g.pos.W===W&&g.pos.H===H)return g.pos;
     for(let i=0;i<N.length;i++){vx[i]-=x[i]*.07*alpha;vy[i]-=y[i]*.05*alpha;x[i]+=vx[i]*.6;y[i]+=vy[i]*.6;vx[i]*=.6;vy[i]*=.6}}
   const x0=Math.min(...x),x1=Math.max(...x),y0=Math.min(...y),y1=Math.max(...y);const sx=(W-30)/(x1-x0||1),sy=(H-30)/(y1-y0||1);
   const P={W,H};N.forEach((n,i)=>P[n.id]={x:15+(x[i]-x0)*sx,y:15+(y[i]-y0)*sy,r:r[i]});return g.pos=P}
-function webSize(){return{W:Math.min(innerWidth,640)-32,H:Math.max(320,innerHeight-250)}}
+function webSize(){const W=Math.max(280,document.documentElement.clientWidth-32);   // the Web fills the window: full width, and down to the buttons at the bottom
+  const H=Math.max(220,Math.round(innerHeight-(ui.webTop||190)-(ui.webBot||125)));ui.webWH=[innerWidth,innerHeight];return{W,H}}
 function webTop(sel){const g=webGraph();const cs=[...new Set(g.nodes.map(n=>n.c).filter(Boolean))].sort((a,b)=>g.nodes.filter(n=>n.c===b).length-g.nodes.filter(n=>n.c===a).length);
   const q=(ui.wq||'').trim().toLowerCase();const hits=q?people.filter(p=>p.name.toLowerCase().includes(q)).sort((a,b)=>(a.name.toLowerCase().startsWith(q)?0:1)-(b.name.toLowerCase().startsWith(q)?0:1)||a.name.localeCompare(b.name)).slice(0,8):[];
   return`<h1>Connections</h1><input class="field" id="wq" type="search" placeholder="Find a person" value="${esc(ui.wq||'')}" autocomplete="off">${q?`<div class="card" style="margin-top:6px">${hits.length?hits.map(p=>`<button class="pick" data-wgo="${esc(p.name)}">${avatar(p)}<div class="grow"><div>${esc(p.name)}</div><div class="sub mute small">${(g.deg[p.name]||0)+' connection'+(g.deg[p.name]===1?'':'s')}</div></div></button>`).join(''):'<p class="mute" style="padding:10px 14px;margin:0">Nobody by that name.</p>'}</div>`:''}
@@ -397,7 +398,7 @@ function webDraw(g,P,t,W,H){const wc=ui.wc||'';const on=n=>!wc||byName(n)&&F(byN
   let s=g.edges.map(e=>{const a=P[e.a],b=P[e.b];if(!inV(a)&&!inV(b))return'';const dim=!(on(e.a)&&on(e.b));
     return`<line x1="${X(a.x)}" y1="${Y(a.y)}" x2="${X(b.x)}" y2="${Y(b.y)}" class="we ${e.k.includes('rel')?'rel':''}${e.k.length===1&&e.k[0]==='email'?' em':''}" style="opacity:${dim?.06:.5};stroke-width:${e.k.includes('rel')?1.6:Math.min(1.4,.5+e.w/40).toFixed(2)}"/>`}).join('');
   s+=g.nodes.map(n=>{const p=P[n.id];if(!inV(p))return'';return`<circle data-n="${esc(n.id)}" cx="${X(p.x)}" cy="${Y(p.y)}" r="${(p.r*grow).toFixed(1)}" fill="${wcol(n.c)}" class="wn" style="opacity:${on(n.id)?1:.12}"/>`}).join('');
-  const max=Math.round((wc?20:12)*t.k*t.k);const boxes=[],lab=[];   // more names appear as you zoom in
+  const max=Math.round((wc?20:12)*t.k*t.k*Math.max(1,W*H/(600*480)));const boxes=[],lab=[];   // more names appear as you zoom in
   [...g.nodes].filter(n=>on(n.id)&&inV(P[n.id])).sort((a,b)=>b.d-a.d).forEach(n=>{if(lab.length>=max)return;const p=P[n.id],x=p.x*t.k+t.x,y=p.y*t.k+t.y,r=p.r*grow,w=n.id.length*5.8,bx=[x-w/2,x+w/2,y-r-16,y-r-2];
     if(boxes.some(o=>!(bx[1]<o[0]||bx[0]>o[1]||bx[3]<o[2]||bx[2]>o[3])))return;boxes.push(bx);lab.push([n,x,y-r-4])});
   return s+lab.map(([n,x,y])=>`<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="wl">${esc(n.id)}</text>`).join('')}
@@ -415,7 +416,9 @@ function vEgo(sel,g){const me=byName(sel);if(!g.deg[sel])return webTop(sel)+`<di
   <div class="card" style="padding:12px 14px;margin-top:6px"><div class="row">${avatar(me)}<div class="grow"><div style="font-weight:700">${esc(sel)}</div><div class="sub mute small">${esc([F(me,'circle'),nb.length+' connection'+(nb.length===1?'':'s')].filter(Boolean).join(' · '))}${nb.length>ring.length?' · ring shows the closest '+ring.length:''}</div></div><a class="btn small" href="#p/${encodeURIComponent(sel)}" style="text-decoration:none">Open</a></div>
   <p class="small mute" style="margin:8px 0 6px">Tap anyone to make them the center. Thicker line = more texts together; lines around the ring = they know each other too.</p>
   <div class="pills">${nb.map(pill).join('')}</div></div>`}
-function webWire(){const svg=$('#websvg');if(!svg)return;const g=$('#wg');const t=ui.wt=ui.wt||{x:0,y:0,k:1};
+function webFit(){const svg=$('#websvg'),qb=$('#qbar');if(!svg||!qb)return false;const top=svg.getBoundingClientRect().top+scrollY,bot=innerHeight-qb.getBoundingClientRect().top+8;
+  const ch=Math.abs(top-(ui.webTop||0))>4||Math.abs(bot-(ui.webBot||0))>4;ui.webTop=top;ui.webBot=bot;return ch}
+function webWire(){const svg=$('#websvg');if(!svg)return;if(webFit()&&!ui._fitting){ui._fitting=1;ui.wt={x:0,y:0,k:1};render();ui._fitting=0;return}const g=$('#wg');const t=ui.wt=ui.wt||{x:0,y:0,k:1};
   const W=svg.viewBox.baseVal.width,H=svg.viewBox.baseVal.height,P=webGraph().pos;const pts=new Map();let moved=0,start=null,pinch=null,multi=false;
   const loc=e=>{const b=svg.getBoundingClientRect(),s=W/b.width;return{x:(e.clientX-b.left)*s,y:(e.clientY-b.top)*s}};
   const clamp=()=>{t.x=Math.min(W/2,Math.max(W/2-W*t.k,t.x));t.y=Math.min(H/2,Math.max(H/2-H*t.k,t.y))};   // never lose the map off-screen
@@ -509,11 +512,14 @@ function seenDate(id){const v=$('#'+id).value;if(v==='none')return'';if(v==='yes
 function route(){const h=decodeURIComponent(location.hash.slice(1));if(h.startsWith('p/'))return['person',h.slice(2)];if(h.startsWith('web/'))return['web',h.slice(4)];return[h||'home','']}
 function render(keepFocus){const[r,arg]=route();const v=$('#view');const act=document.activeElement,id=act&&act.id,pos=act&&act.selectionStart;
   const chipX=[...document.querySelectorAll('#view .chips')].map(c=>c.scrollLeft);   // keep sideways scroll of filter rows across redraws
+  v.classList.toggle('wide',r==='web'&&!arg);
   v.innerHTML=r==='person'?vPerson(arg):r==='web'?vWeb(arg):r==='people'?vPeople():r==='city'?vCity():r==='settings'?vSettings():vHome();
   $('#nav').innerHTML=[['home','⌂','Home'],['people','☰','Everyone'],['web','✳︎','Web'],['city','◎','City'],['settings','⚙','Settings']].map(t=>`<a href="#${t[0]}" class="${r===t[0]?'on':''}"><span>${t[1]}</span>${t[2]}</a>`).join('');
   document.querySelectorAll('#view .chips').forEach((c,i)=>{if(chipX[i])c.scrollLeft=chipX[i]});
   if(r==='web')webWire();
   if(keepFocus&&id&&$('#'+id)){const e=$('#'+id);e.focus();try{e.setSelectionRange(pos,pos)}catch(x){}}}
+let webRT=0;addEventListener('resize',()=>{clearTimeout(webRT);webRT=setTimeout(()=>{const[r,arg]=route();if(r!=='web'||arg||ui.sheet||!ui.webWH)return;
+  const[w,h]=ui.webWH;if(Math.abs(w-innerWidth)<2&&Math.abs(h-innerHeight)<80)return;ui.wt={x:0,y:0,k:1};render()},200)});   // small height changes = phone address bar, ignore
 addEventListener('hashchange',()=>{if(ui.sheet)closeSheet();render();scrollTo(0,0)});
 document.addEventListener('input',e=>{const t=e.target;if(t.id==='sq'){ui.sq=t.value;return renderSheet(true)}if(t.id==='cq'){ui.cq=t.value;return renderSheet(true)}if(t.id==='crev'){ui.crev=t.value;return}if(t.id==='crelx'){ui.crelx=t.value;ui.crev=t.value;const r=$('#crev');if(r)r.value=t.value;return}
   if(t.id==='npname'){ui.np.name=t.value;return renderSheet(true)}if(t.id==='npcircle'){ui.np.circle=t.value;return}if(t.id==='npphone'){ui.np.phone=t.value;return}if(t.id==='npemail'){ui.np.email=t.value;return}if(t.id==='ap'){ui.ap=t.value;return renderSheet(true)}if(t.id==='atext'){ui.atext=t.value;return}if(t.id==='vtext'){ui.vtext=t.value;return}if(t.id==='wq'){ui.wq=t.value;return render(true)}if(t.id==='q'){ui.q=t.value;render(true)}if(t.id==='city'){ui.city=t.value;render(true)}});
