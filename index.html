@@ -207,12 +207,13 @@ async function contactsPlan(){let all=[],pt='';do{const j=await(await api(`${PPL
   const byRn=new Map(all.map(c=>[c.resourceName,c]));const cmap=S.cmap||{};
   const plan=[],used=new Set();
   const byPhoneAll=new Map();for(const c of all)(c.phoneNumbers||[]).forEach(x=>{const k=digits10(x.canonicalForm||x.value);if(k.length>=7)byPhoneAll.set(k,(byPhoneAll.get(k)||[]).concat(c))});
-  for(const p of people){const v=vaultBasics(p);   // best match first: same name, then email, then any shared phone not already claimed
+  for(const p of people){const gc=String(F(p,'google_contacts')||'').toLowerCase();if(/\bskip\b/.test(gc))continue;   // google_contacts: skip | keep-google-name | no-new
+    const v=vaultBasics(p);   // best match first: same name, then email, then any shared phone not already claimed
     const cands=[byRn.get(cmap[p.name]),...(byNm.get(p.name.toLowerCase())||[]),...v.emails.map(e=>byEmail.get(e.toLowerCase())),...v.phones.flatMap(x=>byPhoneAll.get(digits10(x))||[]),...(byNm.get(v.plain.toLowerCase())||[])].filter(Boolean);
     const c=cands.find(x=>!used.has(x.resourceName))||null;
-    if(!c){plan.push({kind:'create',name:p.name,v,what:['new contact']});continue}used.add(c.resourceName);cmap[p.name]=c.resourceName;
+    if(!c){if(!/no-new/.test(gc))plan.push({kind:'create',name:p.name,v,what:['new contact']});continue}used.add(c.resourceName);cmap[p.name]=c.resourceName;
     const what=[],body={resourceName:c.resourceName,etag:c.etag},mask=[];
-    const gName=((c.names||[])[0]||{}).displayName||'';if(![p.name,v.plain].map(s=>s.toLowerCase()).includes(gName.toLowerCase())){body.names=[{givenName:v.given,familyName:v.family}];mask.push('names');what.push(`name “${gName}” → “${v.plain}”`)}
+    const gName=((c.names||[])[0]||{}).displayName||'';if(!/keep-google-name/.test(gc)&&![p.name,v.plain].map(s=>s.toLowerCase()).includes(gName.toLowerCase())){body.names=[{givenName:v.given,familyName:v.family}];mask.push('names');what.push(`name “${gName}” → “${v.plain}”`)}
     const gp=(c.phoneNumbers||[]).map(x=>digits10(x.canonicalForm||x.value));const addP=v.phones.filter(x=>!gp.includes(digits10(x)));
     if(addP.length){body.phoneNumbers=(c.phoneNumbers||[]).map(x=>({value:x.value,type:x.type})).concat(addP.map(x=>({value:x})));mask.push('phoneNumbers');what.push('add phone '+addP.join(', '))}
     const ge=(c.emailAddresses||[]).map(x=>String(x.value).toLowerCase());const addE=v.emails.filter(x=>!ge.includes(x.toLowerCase()));

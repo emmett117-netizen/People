@@ -9,6 +9,10 @@ on:
         description: "Check only (change nothing)"
         type: boolean
         default: false
+      contacts_preview:
+        description: "List Google Contacts changes in the report without making them"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -35,3 +39,4 @@ jobs:
           VAULT_FOLDER_ID: ${{ secrets.VAULT_FOLDER_ID }}
           CONTACTS_SYNC: ${{ vars.CONTACTS_SYNC }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          CONTACTS_PREVIEW: ${{ inputs.contacts_preview && '1' || '' }}

@@ -9,6 +9,7 @@ const CLIENT_ID = need('GOOGLE_CLIENT_ID'), CLIENT_SECRET = need('GOOGLE_CLIENT_
 const VAULT = need('VAULT_FOLDER_ID');
 const CONTACTS_ON = String(env.CONTACTS_SYNC || '').toLowerCase() === 'on';
 const DRY = String(env.DRY_RUN || '') === '1';
+const PREVIEW = String(env.CONTACTS_PREVIEW || '') === '1';   // list Google Contacts changes in the report without making them
 const G = env.GOOGLE_API_BASE || 'https://www.googleapis.com', P = env.PEOPLE_API_BASE || 'https://people.googleapis.com', TOKEN_URL = env.OAUTH_TOKEN_URL || 'https://oauth2.googleapis.com/token';
 
 // --- pull the shared functions out of the app ---
@@ -121,24 +122,24 @@ async function main() {
   for (const [, ns] of seen) { const u = [...new Set(ns)]; if (u.length > 1) report.dupPhones.push(u.join(' / ')); }
 
   // 4. Google Contacts
-  if (CONTACTS_ON) { try { const plan = await lib.contactsPlan(); const n = plan.length ? await lib.contactsPush(plan) : 0;
-      report.contacts = {created: plan.filter(x => x.kind === 'create').length, updated: plan.filter(x => x.kind === 'update').length, done: n, details: plan.map(x => `${x.name}: ${x.what.join('; ')}`)};
+  if (CONTACTS_ON || PREVIEW) { try { const plan = await lib.contactsPlan(); const n = plan.length && !PREVIEW ? await lib.contactsPush(plan) : 0;
+      report.contacts = {preview: PREVIEW, created: plan.filter(x => x.kind === 'create').length, updated: plan.filter(x => x.kind === 'update').length, done: n, details: plan.map((x, k) => `${k + 1}. ${x.name} — ${x.kind === 'create' ? 'new contact' : x.what.join('; ')}`)};
     } catch (e) { report.errors.push('contacts: ' + e.message); } }
 
   // 5. report into the vault (private), counts to the log (public)
   const md = `# People nightly report\n\nLast run: ${report.date}\n\n` +
     `- People: ${report.people}\n- Claude updates applied: ${report.applied}\n- One-sided connections fixed: ${report.mirrored.length}\n` +
-    `- Google Contacts: ${report.contacts ? `${report.contacts.created} created, ${report.contacts.updated} updated` : 'off'}\n` +
+    `- Google Contacts: ${report.contacts ? (report.contacts.preview ? `PREVIEW ONLY — ${report.contacts.created} would be created, ${report.contacts.updated} updated (nothing changed)` : `${report.contacts.created} created, ${report.contacts.updated} updated`) : 'off'}\n` +
     (report.errors.length ? `\n## Problems\n${report.errors.map(e => '- ' + e).join('\n')}\n` : '') +
     (report.mirrored.length ? `\n## Connections fixed\n${report.mirrored.map(e => '- ' + e).join('\n')}\n` : '') +
     (report.broken.length ? `\n## Links to people with no note\n${[...new Set(report.broken)].map(e => '- ' + e).join('\n')}\n` : '') +
     (report.dupPhones.length ? `\n## Same phone number on more than one person\n${report.dupPhones.map(e => '- ' + e).join('\n')}\n` : '') +
-    (report.contacts && report.contacts.details.length ? `\n## Google Contacts changes\n${report.contacts.details.map(e => '- ' + e).join('\n')}\n` : '');
+    (report.contacts && report.contacts.details.length ? `\n## Google Contacts ${report.contacts.preview ? 'changes waiting for approval' : 'changes made'}\n${report.contacts.details.join('\n')}\n` + (report.contacts.preview ? `\nTo leave someone out, add one of these lines to their note's frontmatter: \`google_contacts: skip\` (never touch them in Google), \`google_contacts: keep-google-name\` (don't rename them in Google), \`google_contacts: no-new\` (don't create them in Google).\n` : '') : '');
   const rf = (await list(`name='People report.md' and '${VAULT}' in parents and trashed=false`))[0];
   if (rf) await api(`${UP}/${rf.id}?uploadType=media`, {method: 'PATCH', headers: {'Content-Type': 'text/markdown'}, body: md});
   else { const b = 'x' + Date.now(); await api(`${UP}?uploadType=multipart`, {method: 'POST', headers: {'Content-Type': 'multipart/related; boundary=' + b},
     body: `--${b}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({name: 'People report.md', parents: [VAULT], mimeType: 'text/markdown'})}\r\n--${b}\r\nContent-Type: text/markdown\r\n\r\n${md}\r\n--${b}--`}); }
-  console.log(`people=${report.people} updates_applied=${report.applied} connections_fixed=${report.mirrored.length} broken_links=${new Set(report.broken).size} shared_phones=${report.dupPhones.length} contacts=${report.contacts ? report.contacts.created + '+' + report.contacts.updated : 'off'} writes=${writes} problems=${report.errors.length}${DRY ? ' (dry run)' : ''}`);
+  console.log(`people=${report.people} updates_applied=${report.applied} connections_fixed=${report.mirrored.length} broken_links=${new Set(report.broken).size} shared_phones=${report.dupPhones.length} contacts=${report.contacts ? report.contacts.created + '+' + report.contacts.updated + (PREVIEW ? ' (preview)' : '') : 'off'} writes=${writes} problems=${report.errors.length}${DRY ? ' (dry run)' : ''}`);
   if (report.errors.length) process.exitCode = 1;
 }
 main().catch(e => { console.error('Nightly run failed: ' + e.message); process.exit(1); });
