@@ -216,7 +216,8 @@ async function contactsPlan(){let all=[],pt='';do{const j=await(await api(`${PPL
     // matched on name alone while both sides have different numbers: could be a different person, so never change it automatically
     if(!viaDetail&&(v.phones.length||v.emails.length)&&((c.phoneNumbers||[]).length||(c.emailAddresses||[]).length)){plan.push({kind:'check',name:p.name,what:['Google has a “'+(((c.names||[])[0]||{}).displayName||'?')+'” with different numbers — maybe a different person; not changed']});continue}cmap[p.name]=c.resourceName;
     const what=[],body={resourceName:c.resourceName,etag:c.etag},mask=[];
-    const gName=((c.names||[])[0]||{}).displayName||'';if(!/keep-google-name/.test(gc)&&![p.name,v.plain].map(s=>s.toLowerCase()).includes(gName.toLowerCase())){body.names=[{givenName:v.given,familyName:v.family}];mask.push('names');what.push(`name “${gName}” → “${v.plain}”`)}
+    const gName=((c.names||[])[0]||{}).displayName||'';const nn=s=>String(s).normalize('NFKC').replace(/[\s\u00A0\u200B-\u200D\uFEFF]+/g,' ').trim().toLowerCase();   // ignore invisible spacing differences
+    if(!/keep-google-name/.test(gc)&&![p.name,v.plain].map(nn).includes(nn(gName))){body.names=[{givenName:v.given,familyName:v.family}];mask.push('names');what.push(`name “${gName}” → “${v.plain}”`)}
     const gp=(c.phoneNumbers||[]).map(x=>digits10(x.canonicalForm||x.value));const addP=v.phones.filter(x=>!gp.includes(digits10(x)));
     if(addP.length){body.phoneNumbers=(c.phoneNumbers||[]).map(x=>({value:x.value,type:x.type})).concat(addP.map(x=>({value:x})));mask.push('phoneNumbers');what.push('add phone '+addP.join(', '))}
     const ge=(c.emailAddresses||[]).map(x=>String(x.value).toLowerCase());const addE=v.emails.filter(x=>!ge.includes(x.toLowerCase()));
