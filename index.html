@@ -371,17 +371,18 @@ function webLayout(g,W,H){if(g.pos&&g.pos.W===W&&g.pos.H===H)return g.pos;
   const N=g.nodes,idx={};N.forEach((n,i)=>idx[n.id]=i);const cs=[...new Set(N.map(n=>n.c))];
   const x=new Float64Array(N.length),y=new Float64Array(N.length),vx=new Float64Array(N.length),vy=new Float64Array(N.length);
   let seed=7;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
-  N.forEach((n,i)=>{const a=cs.indexOf(n.c)/cs.length*6.283;x[i]=Math.cos(a)*200+rnd()*80;y[i]=Math.sin(a)*200+rnd()*80});
+  const ar=Math.min(3,Math.max(.4,W/H)),qa=Math.sqrt(ar),gx=.06/Math.pow(ar,1.6),gy=.06;   // pull harder sideways on narrow screens, less on wide ones, so the cloud takes the window's shape
+  N.forEach((n,i)=>{const a=cs.indexOf(n.c)/cs.length*6.283;x[i]=Math.cos(a)*200*qa+rnd()*80;y[i]=Math.sin(a)*200/qa+rnd()*80});
   const L=g.edges.map(e=>[idx[e.a],idx[e.b],e.k.includes('rel')?14:34,Math.min(1,.15+e.w/40)]);const r=N.map(n=>3+Math.sqrt(n.d)*1.9);
   for(let it=0,alpha=1;it<320;it++,alpha*=.985){
     for(let i=0;i<N.length;i++)for(let j=i+1;j<N.length;j++){let dx=x[j]-x[i],dy=y[j]-y[i],d2=dx*dx+dy*dy||.01;if(d2>90000)continue;const d=Math.sqrt(d2),f=-38*alpha/d2;
       vx[i]+=dx*f;vy[i]+=dy*f;vx[j]-=dx*f;vy[j]-=dy*f;const m=r[i]+r[j]+1.5;if(d<m){const o=(m-d)/d*.5;x[i]-=dx*o;y[i]-=dy*o;x[j]+=dx*o;y[j]+=dy*o}}
     for(const[a,b,dist,s]of L){const dx=x[b]-x[a],dy=y[b]-y[a],d=Math.sqrt(dx*dx+dy*dy)||1,f=(d-dist)/d*s*alpha*.5;vx[a]+=dx*f;vy[a]+=dy*f;vx[b]-=dx*f;vy[b]-=dy*f}
-    for(let i=0;i<N.length;i++){vx[i]-=x[i]*.07*alpha;vy[i]-=y[i]*.05*alpha;x[i]+=vx[i]*.6;y[i]+=vy[i]*.6;vx[i]*=.6;vy[i]*=.6}}
-  const x0=Math.min(...x),x1=Math.max(...x),y0=Math.min(...y),y1=Math.max(...y);const sx=(W-30)/(x1-x0||1),sy=(H-30)/(y1-y0||1);
-  const P={W,H};N.forEach((n,i)=>P[n.id]={x:15+(x[i]-x0)*sx,y:15+(y[i]-y0)*sy,r:r[i]});return g.pos=P}
+    for(let i=0;i<N.length;i++){vx[i]-=x[i]*gx*alpha;vy[i]-=y[i]*gy*alpha;x[i]+=vx[i]*.6;y[i]+=vy[i]*.6;vx[i]*=.6;vy[i]*=.6}}
+  const x0=Math.min(...x),x1=Math.max(...x),y0=Math.min(...y),y1=Math.max(...y);const sc=Math.min((W-30)/(x1-x0||1),(H-30)/(y1-y0||1)),ox=(W-(x1-x0)*sc)/2,oy=(H-(y1-y0)*sc)/2;   // same scale both ways: never stretched
+  const P={W,H,raw:(x1-x0)/(y1-y0)};N.forEach((n,i)=>P[n.id]={x:ox+(x[i]-x0)*sc,y:oy+(y[i]-y0)*sc,r:r[i]});return g.pos=P}
 function webSize(){const W=Math.max(280,document.documentElement.clientWidth-32);   // the Web fills the window: full width, and down to the buttons at the bottom
-  const H=Math.max(220,Math.round(innerHeight-(ui.webTop||190)-(ui.webBot||125)));ui.webWH=[innerWidth,innerHeight];return{W,H}}
+  const H=Math.max(220,Math.round(innerHeight-(ui.webTop||190)-(ui.webBot||125)),W<600?Math.min(Math.round(W*1.15),innerHeight-250):0);ui.webWH=[innerWidth,innerHeight];return{W,H}}
 function webTop(sel){const g=webGraph();const cs=[...new Set(g.nodes.map(n=>n.c).filter(Boolean))].sort((a,b)=>g.nodes.filter(n=>n.c===b).length-g.nodes.filter(n=>n.c===a).length);
   const q=(ui.wq||'').trim().toLowerCase();const hits=q?people.filter(p=>p.name.toLowerCase().includes(q)).sort((a,b)=>(a.name.toLowerCase().startsWith(q)?0:1)-(b.name.toLowerCase().startsWith(q)?0:1)||a.name.localeCompare(b.name)).slice(0,8):[];
   return`<h1>Connections</h1><input class="field" id="wq" type="search" placeholder="Find a person" value="${esc(ui.wq||'')}" autocomplete="off">${q?`<div class="card" style="margin-top:6px">${hits.length?hits.map(p=>`<button class="pick" data-wgo="${esc(p.name)}">${avatar(p)}<div class="grow"><div>${esc(p.name)}</div><div class="sub mute small">${(g.deg[p.name]||0)+' connection'+(g.deg[p.name]===1?'':'s')}</div></div></button>`).join(''):'<p class="mute" style="padding:10px 14px;margin:0">Nobody by that name.</p>'}</div>`:''}
