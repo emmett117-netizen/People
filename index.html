@@ -211,7 +211,10 @@ async function contactsPlan(){let all=[],pt='';do{const j=await(await api(`${PPL
     const v=vaultBasics(p);   // best match first: same name, then email, then any shared phone not already claimed
     const cands=[byRn.get(cmap[p.name]),...(byNm.get(p.name.toLowerCase())||[]),...v.emails.map(e=>byEmail.get(e.toLowerCase())),...v.phones.flatMap(x=>byPhoneAll.get(digits10(x))||[]),...(byNm.get(v.plain.toLowerCase())||[])].filter(Boolean);
     const c=cands.find(x=>!used.has(x.resourceName))||null;
-    if(!c){if(!/no-new/.test(gc))plan.push({kind:'create',name:p.name,v,what:['new contact']});continue}used.add(c.resourceName);cmap[p.name]=c.resourceName;
+    const viaDetail=c&&(byRn.get(cmap[p.name])===c||v.emails.some(e=>byEmail.get(e.toLowerCase())===c)||v.phones.some(x=>(byPhoneAll.get(digits10(x))||[]).includes(c)));
+    if(!c){if(!/no-new/.test(gc))plan.push({kind:'create',name:p.name,v,what:['new contact']});continue}used.add(c.resourceName);
+    // matched on name alone while both sides have different numbers: could be a different person, so never change it automatically
+    if(!viaDetail&&(v.phones.length||v.emails.length)&&((c.phoneNumbers||[]).length||(c.emailAddresses||[]).length)){plan.push({kind:'check',name:p.name,what:['Google has a “'+(((c.names||[])[0]||{}).displayName||'?')+'” with different numbers — maybe a different person; not changed']});continue}cmap[p.name]=c.resourceName;
     const what=[],body={resourceName:c.resourceName,etag:c.etag},mask=[];
     const gName=((c.names||[])[0]||{}).displayName||'';if(!/keep-google-name/.test(gc)&&![p.name,v.plain].map(s=>s.toLowerCase()).includes(gName.toLowerCase())){body.names=[{givenName:v.given,familyName:v.family}];mask.push('names');what.push(`name “${gName}” → “${v.plain}”`)}
     const gp=(c.phoneNumbers||[]).map(x=>digits10(x.canonicalForm||x.value));const addP=v.phones.filter(x=>!gp.includes(digits10(x)));
@@ -224,7 +227,7 @@ async function contactsPlan(){let all=[],pt='';do{const j=await(await api(`${PPL
   S.cmap=cmap;LS.set('people.settings',S);return plan}
 function contactBody(v){const b={names:[{givenName:v.given,familyName:v.family}]};if(v.phones.length)b.phoneNumbers=v.phones.map(x=>({value:x}));
   if(v.emails.length)b.emailAddresses=v.emails.map(x=>({value:x}));if(v.birthday)b.birthdays=[{date:v.birthday}];if(v.company||v.title)b.organizations=[{name:v.company,title:v.title}];return b}
-async function contactsPush(plan){let done=0;const cr=plan.filter(x=>x.kind==='create'),up=plan.filter(x=>x.kind==='update');
+async function contactsPush(plan){plan=plan.filter(x=>x.kind!=='check');let done=0;const cr=plan.filter(x=>x.kind==='create'),up=plan.filter(x=>x.kind==='update');
   S.cmap=S.cmap||{};for(let i=0;i<cr.length;i+=150){const part=cr.slice(i,i+150);const j=await(await api(`${PPL}/people:batchCreateContacts`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contacts:part.map(x=>({contactPerson:contactBody(x.v)})),readMask:'names'})})).json();
     (j.createdPeople||[]).forEach((r,k)=>{const rn=r.person&&r.person.resourceName;if(rn&&part[k])S.cmap[part[k].name]=rn});LS.set('people.settings',S);done+=part.length}
   for(let i=0;i<up.length;i+=150){const chunk=up.slice(i,i+150);
@@ -336,7 +339,7 @@ function vSettings(){return`<h1>Settings</h1>
   <input class="field" id="cid" placeholder="Google OAuth client ID (…apps.googleusercontent.com)" value="${esc(S.clientId)}">
   <div class="row wrap" style="margin-top:10px"><button class="btn" id="sync"${syncing?' disabled':''}>${syncing?'Syncing…':(token?'Sync now':'Sign in and sync')}</button><span class="status">${lastSync?'Last synced '+esc(lastSync):''}</span></div></div>
   <h2>Google Contacts</h2><div class="card" style="padding:14px"><p class="small mute" style="margin-top:0">Your vault is the master copy. This sends the basics to Google Contacts: names, phone numbers, emails, birthdays and work. It only adds — it never deletes a contact, number or email.</p>
-  <div class="row wrap"><button class="btn ghost" id="cplan"${ui.cbusy?' disabled':''}>${ui.cbusy==='plan'?'Checking…':'Check what would change'}</button>${ui.cplan&&ui.cplan.length?`<button class="btn" id="cpush"${ui.cbusy?' disabled':''}>${ui.cbusy==='push'?'Updating…':'Update '+ui.cplan.length+' contact'+(ui.cplan.length>1?'s':'')}</button>`:''}</div>
+  <div class="row wrap"><button class="btn ghost" id="cplan"${ui.cbusy?' disabled':''}>${ui.cbusy==='plan'?'Checking…':'Check what would change'}</button>${ui.cplan&&ui.cplan.filter(x=>x.kind!=='check').length?`<button class="btn" id="cpush"${ui.cbusy?' disabled':''}>${ui.cbusy==='push'?'Updating…':'Update '+ui.cplan.filter(x=>x.kind!=='check').length+' contact'+(ui.cplan.filter(x=>x.kind!=='check').length>1?'s':'')}</button>`:''}</div>
   ${ui.cplan?(ui.cplan.length?`<p class="small" style="margin:10px 0 4px">${ui.cplan.filter(x=>x.kind==='create').length} new, ${ui.cplan.filter(x=>x.kind==='update').length} to update:</p><div class="md" style="padding:0;max-height:260px;overflow:auto"><ul>${ui.cplan.slice(0,200).map(x=>`<li><b>${esc(x.name)}</b> — ${esc(x.what.join('; '))}</li>`).join('')}</ul></div>`:'<p class="small">Google Contacts already matches your vault.</p>'):''}
   <label class="small row" style="margin-top:10px"><input type="checkbox" id="cauto"${S.autoContacts?' checked':''}> Keep Google Contacts updated automatically (once a day, when the app opens)</label>
   ${S.contactsPushed?`<p class="status" style="margin:6px 0 0">Last updated ${esc(new Date(S.contactsPushed).toLocaleString())}</p>`:''}</div>
