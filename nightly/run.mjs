@@ -118,7 +118,7 @@ async function main() {
   // 3. the same phone number on more than one person
   const seen = new Map();
   for (const p of all) for (const n of lib.vaultBasics(p).phones) { const k = lib.digits10(n); if (k.length < 10) continue; (seen.get(k) || seen.set(k, []).get(k)).push(p.name); }
-  for (const [, ns] of seen) if (ns.length > 1) report.dupPhones.push(ns.join(' / '));
+  for (const [, ns] of seen) { const u = [...new Set(ns)]; if (u.length > 1) report.dupPhones.push(u.join(' / ')); }
 
   // 4. Google Contacts
   if (CONTACTS_ON) { try { const plan = await lib.contactsPlan(); const n = plan.length ? await lib.contactsPush(plan) : 0;
