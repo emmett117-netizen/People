@@ -25,7 +25,7 @@ function extract(name) {
   return lines.slice(at, end).join('\n');
 }
 const names = ['parseVal','parseNote','setField','addLog','applyOps','noteTemplate','addToSection','connectionsPart','addConn','dropConn',
-  'applyClaudeUpdates','markInboxDone','digits10','vaultBasics','contactsPlan','contactBody','contactsPush'];
+  'applyClaudeUpdates','markInboxDone','digits10','vaultBasics','gAddress','contactsPlan','contactBody','contactsPush'];
 let token = null;
 const shim = `
 let people=[];const S={};const ui={};const LS={get:(k,d)=>d,set:()=>{}};const save=()=>{};const toast=()=>{};

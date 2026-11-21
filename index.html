@@ -64,6 +64,13 @@ a.act{display:inline-flex;gap:6px;align-items:center;text-decoration:none;backgr
 <nav id="nav"></nav>
 <div class="sheet" id="sheet" hidden></div>
 <script>
+/* if anything stops the app from starting, show the error instead of a blank screen */
+(function(){function show(m){var v=document.getElementById('view');if(!v||v.innerHTML.trim())return;
+  v.innerHTML='<h1>Something went wrong</h1><p>The app could not start. Your notes are safe on Drive.</p><pre style="white-space:pre-wrap;font-size:12px">'+String(m).replace(/[<&]/g,'')+'</pre><p><button onclick="(async()=>{try{for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister();for(const k of await caches.keys())await caches.delete(k)}catch(x){}location.replace(\'./?fresh=\'+Date.now())})()">Reload fresh</button></p>'}
+ addEventListener('error',function(e){show((e.error&&e.error.stack)||e.message)});addEventListener('unhandledrejection',function(e){var r=e.reason;if(!document.getElementById('view').innerHTML.trim())show((r&&r.stack)||r)});
+ setTimeout(function(){show('Still blank after 8 seconds.')},8000)})();
+</script>
+<script>
 'use strict';
 /* ---------- storage ---------- */
 const LS={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
@@ -200,8 +207,10 @@ function vaultBasics(p){const fm=view(p).fm;const name=p.name.replace(/\s*\(.*?\
   const b=String(fm.birthday||'').match(/^(\d{4}|-)-?(\d\d)-(\d\d)$/);
   return{name:p.name,plain:name,given:parts.length>1?parts.slice(0,-1).join(' '):name,family:parts.length>1?parts[parts.length-1]:'',
     phones:arr(fm.phone).map(String).filter(x=>digits10(x).length>=7),emails:arr(fm.email).map(String).filter(x=>x.includes('@')),
-    birthday:b?{month:+b[2],day:+b[3],...(/^\d{4}$/.test(b[1])?{year:+b[1]}:{})}:null,company:String(fm.company||''),title:String(fm.title||'')}}
-async function contactsPlan(){let all=[],pt='';do{const j=await(await api(`${PPL}/people/me/connections?personFields=names,phoneNumbers,emailAddresses,birthdays,organizations&pageSize=1000${pt?'&pageToken='+pt:''}`)).json();all=all.concat(j.connections||[]);pt=j.nextPageToken||''}while(pt);
+    birthday:b?{month:+b[2],day:+b[3],...(/^\d{4}$/.test(b[1])?{year:+b[1]}:{})}:null,company:String(fm.company||''),title:String(fm.title||''),address:String(fm.address||'').trim()}}
+function gAddress(a){const m=a.match(/^(.+?),\s*([^,]+?),\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/);   // "3166 Vallejo St, Denver, CO 80211" → Google's parts
+  return m?{type:'home',streetAddress:m[1],city:m[2],region:m[3],postalCode:m[4],country:'United States',countryCode:'US'}:{type:'home',streetAddress:a}}
+async function contactsPlan(){let all=[],pt='';do{const j=await(await api(`${PPL}/people/me/connections?personFields=names,phoneNumbers,emailAddresses,birthdays,organizations,addresses&pageSize=1000${pt?'&pageToken='+pt:''}`)).json();all=all.concat(j.connections||[]);pt=j.nextPageToken||''}while(pt);
   const byPhone=new Map(),byEmail=new Map(),byNm=new Map();
   for(const c of all){(c.phoneNumbers||[]).forEach(x=>{const k=digits10(x.canonicalForm||x.value);if(k.length>=7&&!byPhone.has(k))byPhone.set(k,c)});(c.emailAddresses||[]).forEach(x=>byEmail.set(String(x.value).toLowerCase(),c));const n=(c.names||[])[0];if(n){const k=String(n.displayName||'').toLowerCase();byNm.set(k,(byNm.get(k)||[]).concat(c))}}
   const byRn=new Map(all.map(c=>[c.resourceName,c]));const cmap=S.cmap||{};
@@ -227,10 +236,11 @@ async function contactsPlan(){let all=[],pt='';do{const j=await(await api(`${PPL
     if(addE.length){body.emailAddresses=(c.emailAddresses||[]).map(x=>({value:x.value,type:x.type})).concat(addE.map(x=>({value:x})));mask.push('emailAddresses');what.push('add email '+addE.join(', '))}
     if(v.birthday&&!(c.birthdays||[]).length){body.birthdays=[{date:v.birthday}];mask.push('birthdays');what.push('add birthday')}
     if((v.company||v.title)&&!(c.organizations||[]).length){body.organizations=[{name:v.company,title:v.title}];mask.push('organizations');what.push('add work: '+[v.title,v.company].filter(Boolean).join(', '))}
+    if(v.address&&!(c.addresses||[]).length){body.addresses=[gAddress(v.address)];mask.push('addresses');what.push('add address '+v.address)}
     if(mask.length)plan.push({kind:'update',name:p.name,body,mask,what})}
   S.cmap=cmap;LS.set('people.settings',S);return plan}
 function contactBody(v){const b={names:[{givenName:v.given,familyName:v.family}]};if(v.phones.length)b.phoneNumbers=v.phones.map(x=>({value:x}));
-  if(v.emails.length)b.emailAddresses=v.emails.map(x=>({value:x}));if(v.birthday)b.birthdays=[{date:v.birthday}];if(v.company||v.title)b.organizations=[{name:v.company,title:v.title}];return b}
+  if(v.emails.length)b.emailAddresses=v.emails.map(x=>({value:x}));if(v.birthday)b.birthdays=[{date:v.birthday}];if(v.company||v.title)b.organizations=[{name:v.company,title:v.title}];if(v.address)b.addresses=[gAddress(v.address)];return b}
 async function contactsPush(plan){plan=plan.filter(x=>x.kind!=='check');let done=0;const cr=plan.filter(x=>x.kind==='create'),up=plan.filter(x=>x.kind==='update');
   S.cmap=S.cmap||{};for(let i=0;i<cr.length;i+=150){const part=cr.slice(i,i+150);const j=await(await api(`${PPL}/people:batchCreateContacts`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contacts:part.map(x=>({contactPerson:contactBody(x.v)})),readMask:'names'})})).json();
     (j.createdPeople||[]).forEach((r,k)=>{const rn=r.person&&r.person.resourceName;if(rn&&part[k])S.cmap[part[k].name]=rn});LS.set('people.settings',S);done+=part.length}
@@ -325,6 +335,7 @@ function vPerson(name){const p=byName(name);if(!p)return`<h1>Not found</h1><p><a
   <h2>Details</h2><div class="card"><div class="kv">
   <label>Circle</label><input class="field" data-k="circle" list="circlelist" value="${esc(fm.circle||'')}" placeholder="e.g. Salt Lake City"><datalist id="circlelist">${circles().map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
   <label>City</label><input class="field" data-k="city" value="${esc(fm.city||'')}" placeholder="${esc(cityKey(fm.city_guess||'')||'Where they live')}">
+  <label>Address${fm.address?` <a href="https://maps.apple.com/?q=${encodeURIComponent(fm.address)}" style="text-decoration:none">↗</a>`:''}</label><input class="field" data-k="address" value="${esc(fm.address||'')}" placeholder="Street, city">
   <label>Keep in touch</label><select class="field" data-k="keep_in_touch_months">${['',1,2,3,6,12].map(m=>`<option value="${m}"${String(fm.keep_in_touch_months||'')===String(m)?' selected':''}>${m?'Every '+m+' month'+(m>1?'s':''):'No schedule'}</option>`).join('')}</select>
   <label>Closeness</label><select class="field" data-k="tier">${['','Inner circle','Close','Friendly','Acquaintance'].map(t=>`<option${fm.tier===t?' selected':''}>${t}</option>`).join('')}</select>
   <label>Last seen</label><input class="field" type="date" data-k="last_seen" value="${esc(String(fm.last_seen||''))}">
@@ -511,7 +522,11 @@ function seenDate(id){const v=$('#'+id).value;if(v==='none')return'';if(v==='yes
   if(v==='date')return $('#'+id+'date').value||'';return today()}
 /* ---------- router + events ---------- */
 function route(){const h=decodeURIComponent(location.hash.slice(1));if(h.startsWith('p/'))return['person',h.slice(2)];if(h.startsWith('web/'))return['web',h.slice(4)];return[h||'home','']}
-function render(keepFocus){const[r,arg]=route();const v=$('#view');const act=document.activeElement,id=act&&act.id,pos=act&&act.selectionStart;
+function showErr(e){const v=document.getElementById('view');if(!v)return;const msg=String(e&&(e.stack||e.message)||e).slice(0,600);
+  v.innerHTML=`<h1>Something went wrong</h1><p class="mute">The app hit an error. Your notes are safe on Drive.</p><pre style="white-space:pre-wrap;font-size:12px;background:var(--chip);padding:10px;border-radius:10px">${esc(msg)}</pre><p><button class="btn" id="hardreset">Reload fresh</button> <a class="mute" href="#home">Go home</a></p><p class="small mute">Screenshot this for Claude if it keeps happening.</p>`}
+document.addEventListener('click',e=>{if(e.target.id!=='hardreset')return;(async()=>{try{for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister();for(const k of await caches.keys())await caches.delete(k)}catch(x){}location.replace('./?fresh='+Date.now())})()});
+function render(keepFocus){try{render0(keepFocus)}catch(e){console.error(e);showErr(e)}}
+function render0(keepFocus){const[r,arg]=route();const v=$('#view');const act=document.activeElement,id=act&&act.id,pos=act&&act.selectionStart;
   const chipX=[...document.querySelectorAll('#view .chips')].map(c=>c.scrollLeft);   // keep sideways scroll of filter rows across redraws
   v.classList.toggle('wide',r==='web'&&!arg);
   v.innerHTML=r==='person'?vPerson(arg):r==='web'?vWeb(arg):r==='people'?vPeople():r==='city'?vCity():r==='settings'?vSettings():vHome();
